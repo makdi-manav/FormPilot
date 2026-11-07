@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Google Forms Auto-Filler</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <div class="container">
+    <header class="header">
+      <div class="logo-area">
+        <img src="icons/icon48.png" alt="Logo" class="logo-icon">
+        <div>
+          <h1 class="title">Forms Auto-Filler</h1>
+          <p class="subtitle">Multi-page forms & dummy data generator</p>
+        </div>
+      </div>
+    </header>
+
+    <!-- Live Progress & Status Card -->
+    <div class="status-card" id="statusCard">
+      <div class="status-header">
+        <span class="status-indicator" id="statusDot"></span>
+        <span class="status-label" id="statusLabel">Status: Idle</span>
+      </div>
+      <div class="progress-bar-container">
+        <div class="progress-bar-fill" id="progressBar"></div>
+      </div>
+      <div class="status-text" id="statusText">Ready to start</div>
+      <div class="page-status-text" id="pageStatusText">Supports 1 to 50+ multi-page forms</div>
+    </div>
+
+    <!-- Configuration Settings -->
+    <section class="section">
+      <div class="form-row">
+        <div class="form-group">
+          <label for="totalInput">How many responses</label>
+          <input type="number" id="totalInput" min="1" max="1000" value="10">
+        </div>
+        <div class="form-group">
+          <label for="delayInput">Delay (seconds)</label>
+          <input type="number" id="delayInput" min="0" step="0.5" value="2">
+        </div>
+      </div>
+    </section>
+
+    <!-- Fixed Answers & Custom Answers Section -->
+    <section class="section">
+      <div class="section-header">
+        <div>
+          <h2 class="section-title">Specific / Fixed Answers</h2>
+          <p class="section-hint">Match question keywords to exact answers</p>
+        </div>
+        <div class="section-actions">
+          <button type="button" class="btn-xs" id="scanQuestionsBtn" title="Scan question titles from current page">🔍 Scan Page</button>
+          <button type="button" class="btn-xs" id="toggleBulkBtn" title="Paste multiple rules at once">📋 Bulk Edit</button>
+          <button type="button" class="btn-xs btn-primary-xs" id="addRuleBtn">+ Add Row</button>
+        </div>
+      </div>
+
+      <!-- Bulk Rules Textarea (Hidden by default) -->
+      <div class="bulk-container" id="bulkContainer" style="display: none;">
+        <label class="bulk-label" for="bulkTextarea">Paste rules (one per line, format: <code>keyword : answer</code>):</label>
+        <textarea id="bulkTextarea" rows="6" placeholder="resident : Yes&#10;department : Quality Assurance&#10;rating : 5&#10;gender : Female"></textarea>
+        <div class="bulk-actions">
+          <button type="button" class="btn btn-secondary-sm" id="saveBulkBtn">Apply Bulk Rules</button>
+          <button type="button" class="btn btn-link-sm" id="cancelBulkBtn">Cancel</button>
+        </div>
+      </div>
+
+      <!-- Individual Rows List -->
+      <div class="fixed-answers-list" id="fixedAnswersList">
+        <!-- Rows dynamically injected here -->
+      </div>
+
+      <!-- Unmapped Questions Behavior -->
+      <div class="fallback-option">
+        <label class="checkbox-label">
+          <input type="checkbox" id="randomFallbackCheckbox" checked>
+          <span>Use realistic random data if no fixed answer matches</span>
+        </label>
+      </div>
+    </section>
+
+    <!-- Actions -->
+    <div class="actions">
+      <button type="button" class="btn btn-primary" id="startBtn">
+        <span class="btn-icon">▶</span> Start Filling
+      </button>
+      <button type="button" class="btn btn-danger" id="stopBtn" disabled>
+        <span class="btn-icon">⏹</span> Stop
+      </button>
+    </div>
+
+    <!-- Tab / Notice Message -->
+    <div class="tab-notice" id="tabNotice"></div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
