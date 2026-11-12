@@ -8,13 +8,13 @@ const PROVIDER_PRESETS = {
     keyPlaceholder: 'AIzaSy...',
     keyLinkText: 'Google AI Studio',
     keyLinkUrl: 'https://aistudio.google.com/app/apikey',
-    defaultModel: 'gemini-2.5-flash',
+    defaultModel: 'gemini-3.8-flash',
     models: [
-      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Fast, Recommended)' },
-      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Deep Reasoning)' },
+      { id: 'gemini-3.8-flash', name: 'Gemini 3.8 Flash (Latest, Recommended)' },
+      { id: 'gemini-3.5-flash-lite', name: 'Gemini 3.5 Flash-Lite (Fast & Lightweight)' },
       { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
       { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
-      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro' }
     ]
   },
   openai: {
@@ -51,9 +51,9 @@ const PROVIDER_PRESETS = {
     keyPlaceholder: 'sk-or-v1-...',
     keyLinkText: 'OpenRouter Keys',
     keyLinkUrl: 'https://openrouter.ai/keys',
-    defaultModel: 'google/gemini-2.5-flash',
+    defaultModel: 'google/gemini-2.0-flash',
     models: [
-      { id: 'google/gemini-2.5-flash', name: 'Google Gemini 2.5 Flash' },
+      { id: 'google/gemini-2.0-flash', name: 'Google Gemini 2.0 Flash' },
       { id: 'anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet' },
       { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o' },
       { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini' },
@@ -112,7 +112,7 @@ document.addEventListener('DOMContentLoaded', async () => {
     aiProvider: 'gemini',
     apiKey: '',
     baseUrl: 'https://generativelanguage.googleapis.com',
-    modelName: 'gemini-2.5-flash',
+    modelName: 'gemini-3.8-flash',
     temperature: 1.0
   };
 
@@ -321,7 +321,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   saveBtn.addEventListener('click', async () => {
     const provider = providerSelect.value;
     const key = apiKeyInput.value.trim();
-    const model = customModelInput.value.trim() || modelSelect.value || PROVIDER_PRESETS[provider]?.defaultModel || 'gemini-2.5-flash';
+    const model = customModelInput.value.trim() || modelSelect.value || PROVIDER_PRESETS[provider]?.defaultModel || 'gemini-3.8-flash';
     const baseUrl = baseUrlInput.value.trim() || PROVIDER_PRESETS[provider]?.baseUrl;
     const temp = parseFloat(temperatureInput.value) || 1.0;
 
@@ -346,7 +346,7 @@ document.addEventListener('DOMContentLoaded', async () => {
   testKeyBtn.addEventListener('click', async () => {
     const provider = providerSelect.value;
     const key = apiKeyInput.value.trim();
-    const model = customModelInput.value.trim() || modelSelect.value || PROVIDER_PRESETS[provider]?.defaultModel || 'gemini-2.5-flash';
+    const model = customModelInput.value.trim() || modelSelect.value || PROVIDER_PRESETS[provider]?.defaultModel || 'gemini-3.8-flash';
     const baseUrl = baseUrlInput.value.trim() || PROVIDER_PRESETS[provider]?.baseUrl;
     const temp = parseFloat(temperatureInput.value) || 1.0;
 

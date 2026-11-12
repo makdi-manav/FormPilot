@@ -7,7 +7,7 @@ A high-performance Chrome Extension (Manifest V3) that automates filling and sub
 ## 🌟 What's New in v1.3.0: Universal AI Provider Support
 
 - **🌐 Use ANY AI Model with Your API Key**:
-  - **Google Gemini**: `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-1.5-flash`.
+  - **Google Gemini**: `gemini-3.8-flash` (latest recommended), `gemini-2.0-flash`, `gemini-1.5-flash`.
   - **OpenAI**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`.
   - **Anthropic Claude**: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus`.
   - **OpenRouter**: Access 200+ models (Claude, Llama 3, DeepSeek, Qwen, Mistral) with a single OpenRouter key.

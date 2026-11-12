@@ -171,9 +171,11 @@ async function fetchProviderModels(provider, apiKey, baseUrl) {
       function score(m) {
         let s = 0;
         const id = m.id.toLowerCase();
-        if (id.includes('2.5')) s += 1000;
-        else if (id.includes('2.0')) s += 800;
-        else if (id.includes('1.5')) s += 600;
+        if (id.includes('3.8')) s += 1400;
+        else if (id.includes('3.5')) s += 1200;
+        else if (id.includes('2.0')) s += 1000;
+        else if (id.includes('1.5')) s += 800;
+        else if (id.includes('2.5')) s += 100; // Deprecated/gated by Google for new users
         if (id.includes('flash')) s += 120;
         if (id.includes('pro')) s += 110;
         return s;
@@ -240,7 +242,7 @@ async function askUniversalAi({ provider = 'gemini', apiKey, modelName, baseUrl,
     try {
       // --- A. GOOGLE GEMINI ---
       if (provider === 'gemini') {
-        const model = modelName || 'gemini-2.5-flash';
+        const model = modelName || 'gemini-3.8-flash';
         const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
         const parts = [
@@ -453,7 +455,7 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (existing.running === undefined) defaults.running = false;
   if (existing.done === undefined) defaults.done = 0;
   if (existing.aiProvider === undefined) defaults.aiProvider = 'gemini';
-  if (existing.modelName === undefined) defaults.modelName = 'gemini-2.5-flash';
+  if (existing.modelName === undefined) defaults.modelName = 'gemini-3.8-flash';
   if (existing.baseUrl === undefined) defaults.baseUrl = 'https://generativelanguage.googleapis.com';
   if (existing.temperature === undefined) defaults.temperature = 1.0;
   if (existing.useAiAnswers === undefined) defaults.useAiAnswers = false;
@@ -492,7 +494,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       try {
         const provider = request.provider || 'gemini';
         const apiKey = (request.apiKey || '').trim();
-        const modelName = request.modelName || 'gemini-2.5-flash';
+        const modelName = request.modelName || 'gemini-3.8-flash';
         const baseUrl = request.baseUrl || '';
 
         const textOutput = await askUniversalAi({
@@ -526,7 +528,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
         const state = await chrome.storage.local.get(['aiProvider', 'apiKey', 'modelName', 'baseUrl', 'temperature']);
         const provider = state.aiProvider || 'gemini';
         const apiKey = state.apiKey ? state.apiKey.trim() : '';
-        const modelName = state.modelName ? state.modelName.trim() : 'gemini-2.5-flash';
+        const modelName = state.modelName ? state.modelName.trim() : 'gemini-3.8-flash';
         const baseUrl = state.baseUrl || '';
         const temperature = state.temperature !== undefined ? parseFloat(state.temperature) : 1.0;
 

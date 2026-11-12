@@ -32,7 +32,7 @@ Choose between two powerful execution modes:
 ## ✨ Key Features
 
 - **🌐 Universal AI Provider Support**:
-  - **Google Gemini**: `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`.
+  - **Google Gemini**: `gemini-3.8-flash` (latest recommended), `gemini-2.0-flash`, `gemini-1.5-flash`.
   - **OpenAI**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`.
   - **Anthropic Claude**: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus`.
   - **OpenRouter**: Access 200+ models with one key (Claude, Llama 3, DeepSeek, Qwen).
@@ -75,10 +75,10 @@ Choose between two powerful execution modes:
 3. Select your **AI Service Provider**:
    | Provider | Recommended Vision Model | How to Get an API Key |
    | :--- | :--- | :--- |
-   | **Google Gemini** | `gemini-2.5-flash` | [Google AI Studio](https://aistudio.google.com/app/apikey) |
+   | **Google Gemini** | `gemini-3.8-flash` | [Google AI Studio](https://aistudio.google.com/app/apikey) |
    | **OpenAI** | `gpt-4o-mini` / `gpt-4o` | [OpenAI Platform](https://platform.openai.com/api-keys) |
    | **Anthropic Claude** | `claude-3-5-sonnet-20241022` | [Anthropic Console](https://console.anthropic.com/settings/keys) |
-   | **OpenRouter** | `google/gemini-2.5-flash` / `openai/gpt-4o` | [OpenRouter](https://openrouter.ai/keys) |
+   | **OpenRouter** | `google/gemini-2.0-flash` / `openai/gpt-4o` | [OpenRouter](https://openrouter.ai/keys) |
    | **Groq** | `llama-3.2-11b-vision-preview` | [Groq Console](https://console.groq.com/keys) |
    | **Custom / Local** | `deepseek-chat` / `llama3.2-vision` | Enter endpoint e.g. `http://localhost:11434/v1` |
 4. Paste your API key, select or type your model, and click **"⚡ Test Connection"**.
