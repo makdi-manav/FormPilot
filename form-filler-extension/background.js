@@ -228,7 +228,7 @@ async function fetchProviderModels(provider, apiKey, baseUrl) {
 }
 
 // Universal AI Caller (Gemini, OpenAI, Anthropic, OpenRouter, Groq, Custom)
-async function askUniversalAi({ provider = 'gemini', apiKey, modelName, baseUrl, imageParts = [], promptText, temperature = 1.0 }) {
+async function askUniversalAi({ provider = 'gemini', apiKey, modelName, baseUrl, imageParts = [], promptText, temperature = 1.0, isTest = false }) {
   const temp = Math.max(0.0, Math.min(1.5, Number(temperature) || 1.0));
   const maxRetries = 3;
   let attempt = 0;
@@ -361,6 +361,16 @@ async function askUniversalAi({ provider = 'gemini', apiKey, modelName, baseUrl,
 
     // Rate Limit Handling (HTTP 429)
     if (response.status === 429) {
+      let errDetail = '';
+      try {
+        const errJson = await response.json();
+        errDetail = errJson.error ? (errJson.error.message || JSON.stringify(errJson.error)) : '';
+      } catch (_) {}
+
+      if (isTest) {
+        throw new Error(`Rate limit / Quota exceeded (HTTP 429) on ${provider.toUpperCase()}.${errDetail ? ' Details: ' + errDetail : ' Your free-tier quota is exhausted or rate limit hit. Try another model (e.g. gemini-2.0-flash) or switch provider.'}`);
+      }
+
       if (attempt <= maxRetries) {
         console.warn(`[FormPilot Service Worker] Rate limit hit (HTTP 429) on ${provider}. Waiting 20s before retry ${attempt}/${maxRetries}...`);
         await chrome.storage.local.set({
@@ -369,7 +379,7 @@ async function askUniversalAi({ provider = 'gemini', apiKey, modelName, baseUrl,
         await new Promise(r => setTimeout(r, 20000));
         continue;
       } else {
-        throw new Error(`API rate limit exceeded (HTTP 429) on ${provider} after 3 retries. Please wait a moment or increase submission delay.`);
+        throw new Error(`API rate limit exceeded (HTTP 429) on ${provider} after 3 retries.${errDetail ? ' Details: ' + errDetail : ''} Please wait a moment or increase submission delay.`);
       }
     }
 
@@ -492,7 +502,8 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
           baseUrl,
           imageParts: [],
           promptText: 'Respond with ONLY a JSON object: {"status": "ok"}',
-          temperature: 0.7
+          temperature: 0.7,
+          isTest: true
         });
 
         const parsed = parseJsonSafely(textOutput);
