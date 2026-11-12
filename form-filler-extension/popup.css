@@ -88,6 +88,12 @@ body {
   animation: fadeIn 0.2s ease-in-out;
 }
 
+.error-banner.warning-mode {
+  background: #fff3e0;
+  color: #e65100;
+  border-color: #ffe0b2;
+}
+
 /* AI Mode Section */
 .ai-section {
   background: linear-gradient(135deg, #f7f3fd 0%, #ffffff 100%);

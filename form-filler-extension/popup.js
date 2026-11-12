@@ -232,12 +232,17 @@ document.addEventListener('DOMContentLoaded', async () => {
     const percent = total > 0 ? Math.min(100, Math.round((done / total) * 100)) : 0;
     progressBar.style.width = `${percent}%`;
 
-    // Check for error messages in status
+    // Check for error messages in status or vision warning
     const statusMsg = state.statusMessage || '';
     const isError = /error|invalid api key|rate limit|429/i.test(statusMsg);
 
     if (isError && !isRunning) {
       errorBanner.textContent = statusMsg;
+      errorBanner.className = 'error-banner';
+      errorBanner.style.display = 'block';
+    } else if (state.lastWarning) {
+      errorBanner.textContent = `⚠️ ${state.lastWarning}`;
+      errorBanner.className = 'error-banner warning-mode';
       errorBanner.style.display = 'block';
     } else {
       errorBanner.style.display = 'none';
@@ -429,6 +434,7 @@ document.addEventListener('DOMContentLoaded', async () => {
       useRandomFallback: useRandomFallback,
       useAiAnswers: isAi,
       personaHint: personaHint,
+      lastWarning: '',
       statusMessage: `Starting (0 / ${total})...`,
       currentPageStatus: isAi ? 'Initializing AI model and reading form...' : 'Starting multi-page form...'
     };

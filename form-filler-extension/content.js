@@ -415,6 +415,81 @@
     return text.includes('add file') || text.includes('upload file');
   }
 
+  // Detects whether a question is required by Google Forms
+  function isQuestionRequired(block) {
+    if (!block) return false;
+    if (block.querySelector('[aria-required="true"]')) return true;
+    if (block.querySelector('.vR13fe, [aria-label*="Required" i]')) return true;
+    const heading = block.querySelector('[role="heading"]');
+    if (heading && /\*\s*$/.test(heading.textContent || '')) return true;
+    return false;
+  }
+
+  // Extracts visible stimulus images from active page/section (ignoring icons, logos, avatars)
+  function collectStimulusImages() {
+    const allImgs = Array.from(document.querySelectorAll('img'));
+    const candidateImages = [];
+    const seenUrls = new Set();
+
+    for (const img of allImgs) {
+      const rect = img.getBoundingClientRect();
+      const style = window.getComputedStyle(img);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+      if (rect.width < 50 || rect.height < 50) continue; // Ignore tiny icons, badges, indicators
+
+      const src = img.currentSrc || img.src || '';
+      if (!src || !/^https?:\/\//i.test(src)) continue;
+      if (seenUrls.has(src)) continue;
+
+      // Ignore Google account profile icons and decorative Google assets
+      if (/cleardot\.gif|gstatic\.com\/docs\/forms|lh3\.googleusercontent\.com\/a\//i.test(src)) continue;
+
+      // Ignore images inside buttons or navigation controls
+      if (img.closest('button, [role="button"], [role="radio"], [role="checkbox"]')) continue;
+
+      seenUrls.add(src);
+
+      const alt = (img.getAttribute('alt') || img.getAttribute('aria-label') || '').trim();
+      candidateImages.push({
+        url: src,
+        alt: alt,
+        width: Math.round(rect.width),
+        height: Math.round(rect.height)
+      });
+    }
+
+    // Sort by visual area descending so largest/most prominent stimulus images come first
+    candidateImages.sort((a, b) => (b.width * b.height) - (a.width * a.height));
+
+    return candidateImages;
+  }
+
+  // Extracts active section/page title and description
+  function getActiveSectionInfo() {
+    const pageInfo = getCurrentPageInfo();
+    let title = pageInfo.coasterCode || '';
+    let description = '';
+
+    const headerElem = document.querySelector('.freebirdFormviewerViewHeaderTitle, [role="heading"][aria-level="1"], [role="heading"][aria-level="2"]');
+    if (headerElem) {
+      const text = (headerElem.innerText || headerElem.textContent || '').trim();
+      if (text) {
+        title = title ? `${title} - ${text}` : text;
+      }
+    }
+
+    if (!title) {
+      title = pageInfo.pageText || 'Active Section';
+    }
+
+    const descElem = document.querySelector('.freebirdFormviewerViewHeaderDescription, .M7eMe');
+    if (descElem) {
+      description = (descElem.innerText || descElem.textContent || '').trim();
+    }
+
+    return { title, description };
+  }
+
   // Scans visible questions on active page and builds structured schema for Gemini API
   function scanVisibleQuestionsForAi(visibleBlocks) {
     const list = [];
@@ -422,6 +497,7 @@
       if (isFileUpload(block)) return;
 
       const title = getQuestionTitle(block);
+      const isRequired = isQuestionRequired(block);
       const rows = getGridRowsFromBlock(block);
 
       // Grid question (multiple rows)
@@ -444,7 +520,7 @@
             title: `${title} [${rowLabel}]`,
             type: isCheckbox ? 'checkbox' : 'radio',
             options: opts.length > 0 ? opts : ['1', '2', '3', '4', '5'],
-            required: true
+            required: isRequired
           });
         });
         return;
@@ -465,7 +541,7 @@
           title: title,
           type: 'dropdown',
           options: opts,
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -477,7 +553,7 @@
           title: title,
           type: 'date',
           options: [],
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -489,7 +565,7 @@
           title: title,
           type: 'time',
           options: [],
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -507,7 +583,7 @@
           title: title,
           type: 'scale',
           options: opts.length > 0 ? opts : ['1', '2', '3', '4', '5'],
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -520,7 +596,7 @@
           title: title,
           type: 'radio',
           options: opts,
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -534,7 +610,7 @@
           title: title,
           type: 'checkbox',
           options: opts,
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -546,7 +622,7 @@
           title: title,
           type: 'paragraph',
           options: [],
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -558,7 +634,7 @@
           title: title,
           type: 'text',
           options: [],
-          required: true
+          required: isRequired
         });
         return;
       }
@@ -1064,6 +1140,14 @@
         return { type: 'File Upload (Skipped)', value: '[SKIPPED]' };
       }
 
+      const required = isQuestionRequired(item);
+
+      // If optional and AI explicitly returned empty string, leave it blank (human-like skipping)
+      if (!required && blockAiAns === '') {
+        console.log(`[FormPilot] Skipping optional question "${title}" as per AI respondent behavior.`);
+        return { type: 'Optional (Skipped by AI)', value: '[SKIPPED]' };
+      }
+
       if (!fixedAnswer && !blockAiAns && !useRandomFallback) {
         return null;
       }
@@ -1439,26 +1523,34 @@
         const visibleBlocks = getVisibleQuestionBlocks();
         console.log(`[FormPilot] ${pageLabel}: Found ${visibleBlocks.length} visible items.`);
 
-        // 2. If AI mode is enabled, request answers for visible questions in ONE request
+        // 2. If AI mode is enabled, request answers for visible questions in ONE request with multimodal vision
         let aiAnswers = null;
         if (useAiAnswers && visibleBlocks.length > 0) {
           const aiQuestions = scanVisibleQuestionsForAi(visibleBlocks);
           if (aiQuestions.length > 0) {
+            const sectionInfo = getActiveSectionInfo();
+            const sectionImages = collectStimulusImages();
+
             await chrome.storage.local.set({
-              currentPageStatus: `Generating AI answers for ${pageLabel} via Gemini...`
+              currentPageStatus: `Generating AI vision answers for ${sectionInfo.title} via Gemini...`
             });
 
             try {
               const aiRes = await chrome.runtime.sendMessage({
                 action: 'GET_AI_ANSWERS',
-                questions: aiQuestions,
+                stimulus: {
+                  sectionTitle: sectionInfo.title,
+                  sectionDescription: sectionInfo.description,
+                  images: sectionImages,
+                  questions: aiQuestions
+                },
                 personaHint: personaHint,
                 submissionIndex: done
               });
 
               if (aiRes && aiRes.success) {
                 aiAnswers = aiRes.answers || {};
-                console.log(`[FormPilot] Received Gemini AI answers for ${pageLabel}:`, aiAnswers);
+                console.log(`[FormPilot] Received Gemini AI vision answers for ${pageLabel} (${sectionInfo.title}):`, aiAnswers);
               } else {
                 const errMsg = aiRes ? (aiRes.message || aiRes.error) : 'Unknown AI error';
                 console.warn(`[FormPilot] Gemini AI generation error: ${errMsg}`);

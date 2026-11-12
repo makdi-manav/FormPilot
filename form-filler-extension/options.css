@@ -253,6 +253,76 @@ body {
   border: 1px solid #bbdefb;
 }
 
+/* Model Select Wrapper */
+.model-select-wrapper {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.model-select-wrapper select {
+  flex: 1;
+  cursor: pointer;
+}
+
+.btn-icon-only {
+  flex-shrink: 0;
+  padding: 10px 14px;
+  font-size: 13px;
+}
+
+.model-note {
+  font-style: italic;
+  color: #455a64;
+}
+
+.warning-banner {
+  margin-top: 10px;
+  padding: 10px 14px;
+  border-radius: 6px;
+  font-size: 13px;
+  background-color: var(--warning-bg);
+  color: var(--warning-color);
+  border: 1px solid #ffe0b2;
+  animation: fadeIn 0.2s ease-in-out;
+}
+
+/* Temperature Slider */
+.label-with-value {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 6px;
+}
+
+.badge-value {
+  background: var(--primary-light);
+  color: var(--primary);
+  font-weight: 700;
+  font-size: 12.5px;
+  padding: 2px 8px;
+  border-radius: 12px;
+}
+
+.form-range {
+  width: 100%;
+  height: 6px;
+  border-radius: 3px;
+  background: #e0e0e0;
+  outline: none;
+  cursor: pointer;
+  accent-color: var(--primary);
+  margin: 8px 0 4px;
+}
+
+.range-labels {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
 .card-info {
   background: #fafafa;
   border-left: 4px solid var(--secondary);
