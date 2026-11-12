@@ -1,0 +1,103 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>FormPilot Settings - Gemini API</title>
+  <link rel="stylesheet" href="options.css">
+</head>
+<body>
+  <div class="options-container">
+    <header class="options-header">
+      <div class="logo-area">
+        <img src="icons/icon48.png" alt="FormPilot" class="logo-icon">
+        <div>
+          <h1 class="title">FormPilot Settings</h1>
+          <p class="subtitle">Configure Google Gemini API for AI-powered form responses</p>
+        </div>
+      </div>
+    </header>
+
+    <main class="options-main">
+      <!-- API Configuration Card -->
+      <section class="card">
+        <h2 class="card-title">Gemini API Credentials</h2>
+        <p class="card-description">
+          FormPilot uses the Google Gemini API to intelligently generate realistic, persona-driven answers for your Google Forms.
+        </p>
+
+        <div class="form-group">
+          <label for="apiKeyInput" class="form-label">
+            Gemini API Key <span class="required">*</span>
+          </label>
+          <div class="input-password-wrapper">
+            <input
+              type="password"
+              id="apiKeyInput"
+              class="form-input"
+              placeholder="AIzaSy..."
+              autocomplete="off"
+              spellcheck="false"
+            >
+            <button type="button" id="toggleKeyVisibility" class="btn-toggle-eye" title="Show or hide API key">👁️</button>
+          </div>
+          <p class="form-help">
+            Don't have a key? Get a free API key at
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
+          </p>
+        </div>
+
+        <div class="form-group">
+          <label for="modelInput" class="form-label">
+            Gemini Model Name
+          </label>
+          <input
+            type="text"
+            id="modelInput"
+            class="form-input"
+            value="gemini-2.5-flash"
+            placeholder="gemini-2.5-flash"
+            spellcheck="false"
+          >
+          <p class="form-help">
+            Default: <code>gemini-2.5-flash</code>. You can also specify <code>gemini-1.5-flash</code> or other Gemini models.
+          </p>
+        </div>
+
+        <!-- Action Buttons -->
+        <div class="card-actions">
+          <button type="button" id="saveBtn" class="btn btn-primary">
+            <span>💾 Save Settings</span>
+          </button>
+          <button type="button" id="testKeyBtn" class="btn btn-secondary">
+            <span>⚡ Test Key</span>
+          </button>
+        </div>
+
+        <!-- Status Message Banner -->
+        <div id="statusBanner" class="status-banner" style="display: none;"></div>
+      </section>
+
+      <!-- Privacy & Security Notice -->
+      <section class="card card-info">
+        <h3 class="info-title">🔒 Privacy & Google AI Studio Policy</h3>
+        <p class="info-text">
+          <strong>Security:</strong> Your API key is stored locally in your browser's private <code>chrome.storage.local</code>. It is never logged, never transmitted to external servers, and never shared.
+        </p>
+        <p class="info-text">
+          <strong>Free-Tier Notice:</strong> If you are using the free tier of Google AI Studio, Google may use prompt and response data to train and improve its products. <em>Never submit sensitive, proprietary, confidential, or personally identifiable data.</em>
+        </p>
+        <p class="info-text">
+          <strong>Usage Warning:</strong> FormPilot is strictly an automated testing tool designed for testing your own Google Forms during development and research.
+        </p>
+      </section>
+    </main>
+
+    <footer class="options-footer">
+      <p>FormPilot &bull; Manifest V3 &bull; 100% Client-Side</p>
+    </footer>
+  </div>
+
+  <script src="options.js"></script>
+</body>
+</html>

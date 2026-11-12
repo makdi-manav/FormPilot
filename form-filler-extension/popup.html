@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Google Forms Auto-Filler</title>
+  <title>FormPilot - Google Forms Auto-Filler</title>
   <link rel="stylesheet" href="popup.css">
 </head>
 <body>
@@ -12,11 +12,17 @@
       <div class="logo-area">
         <img src="icons/icon48.png" alt="Logo" class="logo-icon">
         <div>
-          <h1 class="title">Forms Auto-Filler</h1>
-          <p class="subtitle">Multi-page forms & dummy data generator</p>
+          <h1 class="title">FormPilot</h1>
+          <p class="subtitle">Multi-page forms & smart AI dummy data</p>
         </div>
       </div>
+      <button type="button" class="btn-settings-header" id="openSettingsBtn" title="Open Settings (Gemini API & Models)">
+        ⚙️ Settings
+      </button>
     </header>
+
+    <!-- Error Banner -->
+    <div class="error-banner" id="errorBanner" style="display: none;"></div>
 
     <!-- Live Progress & Status Card -->
     <div class="status-card" id="statusCard">
@@ -30,6 +36,43 @@
       <div class="status-text" id="statusText">Ready to start</div>
       <div class="page-status-text" id="pageStatusText">Supports 1 to 50+ multi-page forms</div>
     </div>
+
+    <!-- AI Mode (Gemini API) Card -->
+    <section class="section ai-section">
+      <div class="ai-toggle-row">
+        <div class="ai-toggle-info">
+          <div class="ai-title-badge-wrap">
+            <label class="ai-toggle-title" for="useAiToggle">Use AI answers (Gemini)</label>
+            <span class="ai-badge">AI MODE</span>
+          </div>
+          <p class="ai-toggle-sub">Generate realistic persona responses via Gemini</p>
+        </div>
+        <label class="switch">
+          <input type="checkbox" id="useAiToggle">
+          <span class="slider round"></span>
+        </label>
+      </div>
+
+      <div class="ai-details" id="aiDetails" style="display: none;">
+        <div class="form-group ai-input-group">
+          <label for="personaHintInput" class="ai-label">
+            Persona Hint <span class="hint-tag">Optional</span>
+          </label>
+          <input
+            type="text"
+            id="personaHintInput"
+            class="ai-hint-input"
+            placeholder="e.g. college students in Pune, young techies"
+            spellcheck="false"
+          >
+          <p class="ai-hint-text">Steers Gemini's demographic and tone for all responses.</p>
+        </div>
+
+        <div class="api-key-warning" id="apiKeyWarning" style="display: none;">
+          ⚠️ Gemini API key not set. <a href="#" id="missingKeySettingsLink">Open settings</a> to enter your key.
+        </div>
+      </div>
+    </section>
 
     <!-- Configuration Settings -->
     <section class="section">
@@ -50,7 +93,7 @@
       <div class="section-header">
         <div>
           <h2 class="section-title">Specific / Fixed Answers</h2>
-          <p class="section-hint">Match question keywords to exact answers</p>
+          <p class="section-hint">Rules ALWAYS override AI and random answers</p>
         </div>
         <div class="section-actions">
           <button type="button" class="btn-xs" id="scanQuestionsBtn" title="Scan question titles from current page">🔍 Scan Page</button>

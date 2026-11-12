@@ -1,5 +1,6 @@
-// Content Script - Google Forms Auto-Filler
-// Supports Multi-Page Forms (1 to 50+ pages), Grids (Radios & Checkboxes), and Realistic Demographic Data
+// Content Script - FormPilot (Google Forms Auto-Filler)
+// Supports Multi-Page Forms (1 to 50+ pages), Grids (Radios & Checkboxes),
+// Realistic Demographic Pools, and Gemini AI Generation Mode.
 // Unstoppable, self-healing execution that never halts until all responses are finished or user clicks Stop.
 
 (() => {
@@ -234,24 +235,33 @@
     } catch (_) {}
 
     try { el.focus(); } catch (_) {}
-    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
-    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
-    el.click();
 
-    // Wait for Google Forms DOM event listener to commit state
+    // First try standard click
+    el.click();
     await sleep(70);
 
     if (el.getAttribute('aria-checked') === 'true') {
       return true;
     }
 
-    // Secondary attempt: click inner target if not checked yet
-    const innerTarget = el.querySelector('.uHMk6b, .AB7Lab, [role="presentation"]') || el.parentElement;
-    if (innerTarget && el.getAttribute('aria-checked') !== 'true') {
+    // Secondary attempt: dispatch pointer and mouse event sequence
+    const innerTarget = el.querySelector('.uHMk6b, .AB7Lab, [role="presentation"]') || el;
+    try {
+      innerTarget.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true, cancelable: true, view: window }));
       innerTarget.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true, view: window }));
+      innerTarget.dispatchEvent(new PointerEvent('pointerup', { bubbles: true, cancelable: true, view: window }));
       innerTarget.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true, view: window }));
       innerTarget.click();
-      await sleep(70);
+    } catch (_) {}
+
+    await sleep(80);
+
+    // Tertiary attempt: if still not checked and parent exists, click parent
+    if (el.getAttribute('aria-checked') !== 'true' && el.parentElement) {
+      try {
+        el.parentElement.click();
+      } catch (_) {}
+      await sleep(80);
     }
 
     return el.getAttribute('aria-checked') === 'true';
@@ -405,10 +415,166 @@
     return text.includes('add file') || text.includes('upload file');
   }
 
-  async function fillDateQuestion(item, title, fixedAnswer) {
+  // Scans visible questions on active page and builds structured schema for Gemini API
+  function scanVisibleQuestionsForAi(visibleBlocks) {
+    const list = [];
+    visibleBlocks.forEach((block, blockIndex) => {
+      if (isFileUpload(block)) return;
+
+      const title = getQuestionTitle(block);
+      const rows = getGridRowsFromBlock(block);
+
+      // Grid question (multiple rows)
+      if (rows && rows.length > 1) {
+        rows.forEach((row, r) => {
+          const rowLabel = (
+            row.element.getAttribute('aria-label') ||
+            row.element.querySelector('[role="rowheader"], th, .E29oPb')?.innerText ||
+            row.options[0]?.getAttribute('data-row-label') ||
+            `Row ${r + 1}`
+          ).trim();
+
+          const isCheckbox = row.options[0] && row.options[0].getAttribute('role') === 'checkbox';
+          const opts = row.options.map(opt =>
+            (opt.getAttribute('aria-label') || opt.getAttribute('data-value') || opt.innerText || '').trim()
+          ).filter(Boolean);
+
+          list.push({
+            id: `block_${blockIndex}_row_${r}`,
+            title: `${title} [${rowLabel}]`,
+            type: isCheckbox ? 'checkbox' : 'radio',
+            options: opts.length > 0 ? opts : ['1', '2', '3', '4', '5'],
+            required: true
+          });
+        });
+        return;
+      }
+
+      // Dropdown
+      const hasListbox = block.querySelector('div[role="listbox"], select');
+      if (hasListbox) {
+        const select = block.querySelector('select');
+        let opts = [];
+        if (select) {
+          opts = Array.from(select.options).map(o => o.text).filter(t => !/choose|select/i.test(t));
+        } else {
+          opts = Array.from(block.querySelectorAll('div[role="option"]')).map(o => (o.innerText || '').trim()).filter(Boolean);
+        }
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'dropdown',
+          options: opts,
+          required: true
+        });
+        return;
+      }
+
+      // Date
+      if (block.querySelector('input[type="date"]') || block.querySelectorAll('input[type="text"][aria-label*="day" i], input[type="text"][aria-label*="month" i]').length >= 2) {
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'date',
+          options: [],
+          required: true
+        });
+        return;
+      }
+
+      // Time
+      if (block.querySelector('input[type="time"]') || block.querySelectorAll('input[type="text"][aria-label*="hour" i], input[type="text"][aria-label*="minute" i]').length >= 2) {
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'time',
+          options: [],
+          required: true
+        });
+        return;
+      }
+
+      // Linear scale
+      const radios = Array.from(block.querySelectorAll('[role="radio"]'));
+      const isLinearScale = block.querySelectorAll('[role="radiogroup"]').length > 0 &&
+        radios.length >= 3 &&
+        /^[0-9]+$/.test((radios[0].innerText || radios[0].getAttribute('data-value') || '').trim());
+
+      if (isLinearScale) {
+        const opts = radios.map(r => (r.innerText || r.getAttribute('data-value') || '').trim()).filter(Boolean);
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'scale',
+          options: opts.length > 0 ? opts : ['1', '2', '3', '4', '5'],
+          required: true
+        });
+        return;
+      }
+
+      // Multiple choice (standalone radio)
+      if (radios.length > 0) {
+        const opts = radios.map(r => (r.getAttribute('aria-label') || r.innerText || r.textContent || '').trim()).filter(Boolean);
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'radio',
+          options: opts,
+          required: true
+        });
+        return;
+      }
+
+      // Checkboxes (standalone)
+      const checkboxes = Array.from(block.querySelectorAll('[role="checkbox"]'));
+      if (checkboxes.length > 0) {
+        const opts = checkboxes.map(c => (c.getAttribute('aria-label') || c.innerText || c.textContent || '').trim()).filter(Boolean);
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'checkbox',
+          options: opts,
+          required: true
+        });
+        return;
+      }
+
+      // Paragraph
+      if (block.querySelector('textarea')) {
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'paragraph',
+          options: [],
+          required: true
+        });
+        return;
+      }
+
+      // Short answer
+      if (block.querySelector('input[type="text"], input[type="email"], input[type="number"], input[type="tel"], input[type="url"], input:not([type])')) {
+        list.push({
+          id: `block_${blockIndex}`,
+          title: title,
+          type: 'text',
+          options: [],
+          required: true
+        });
+        return;
+      }
+    });
+
+    return list;
+  }
+
+  async function fillDateQuestion(item, title, fixedAnswer, aiAnswer) {
     const nativeDate = item.querySelector('input[type="date"]');
     if (nativeDate) {
       let dateVal = fixedAnswer;
+      if (!dateVal && aiAnswer) {
+        const m = String(aiAnswer).match(/\b(\d{4}-\d{2}-\d{2})\b/);
+        if (m) dateVal = m[1];
+      }
       if (!dateVal) {
         const year = /birth|dob/i.test(title) ? (Math.floor(Math.random() * 30) + 1975) : (Math.floor(Math.random() * 4) + 2021);
         const month = String(Math.floor(Math.random() * 12) + 1).padStart(2, '0');
@@ -440,10 +606,15 @@
     return null;
   }
 
-  async function fillTimeQuestion(item, title, fixedAnswer) {
+  async function fillTimeQuestion(item, title, fixedAnswer, aiAnswer) {
     const timeInputs = Array.from(item.querySelectorAll('input[type="time"]'));
     if (timeInputs.length > 0) {
-      const val = fixedAnswer || '14:30';
+      let val = fixedAnswer;
+      if (!val && aiAnswer) {
+        const m = String(aiAnswer).match(/\b(\d{2}:\d{2})\b/);
+        if (m) val = m[1];
+      }
+      val = val || '14:30';
       setNativeValue(timeInputs[0], val);
       return { type: 'Time', value: val };
     }
@@ -462,7 +633,7 @@
     return null;
   }
 
-  async function fillDropdownQuestion(item, title, fixedAnswer) {
+  async function fillDropdownQuestion(item, title, fixedAnswer, aiAnswer) {
     const listbox = item.querySelector('div[role="listbox"]');
     if (listbox) {
       listbox.click();
@@ -482,6 +653,18 @@
             return t === fixedAnswer.toLowerCase() || t.includes(fixedAnswer.toLowerCase());
           });
         }
+
+        if (!chosen && aiAnswer !== undefined && aiAnswer !== null) {
+          const aiStr = String(aiAnswer).trim().toLowerCase();
+          chosen = validOptions.find(opt => {
+            const t = (opt.innerText || opt.textContent || '').trim().toLowerCase();
+            return t === aiStr || t.startsWith(aiStr);
+          });
+          if (!chosen) {
+            console.warn(`[FormPilot AI] Dropdown answer "${aiAnswer}" invalid for "${title}". Falling back to random.`);
+          }
+        }
+
         if (!chosen) {
           chosen = validOptions[Math.floor(Math.random() * validOptions.length)];
         }
@@ -501,6 +684,13 @@
         if (fixedAnswer) {
           chosen = valid.find(o => o.text.toLowerCase().includes(fixedAnswer.toLowerCase()));
         }
+        if (!chosen && aiAnswer !== undefined && aiAnswer !== null) {
+          const aiStr = String(aiAnswer).trim().toLowerCase();
+          chosen = valid.find(o => o.text.trim().toLowerCase() === aiStr || o.text.trim().toLowerCase().startsWith(aiStr));
+          if (!chosen) {
+            console.warn(`[FormPilot AI] Dropdown answer "${aiAnswer}" invalid for "${title}". Falling back to random.`);
+          }
+        }
         if (!chosen) {
           chosen = valid[Math.floor(Math.random() * valid.length)];
         }
@@ -517,40 +707,67 @@
   // Fully supports Multiple-Choice Grids (radios) AND Checkbox Grids (checkboxes)
   function getGridRowsFromBlock(block) {
     // 1. Check for standard container rows (role="radiogroup", role="group", role="row", or tr)
-    const containers = Array.from(block.querySelectorAll('[role="radiogroup"], [role="group"]:not([role="listitem"]), [role="row"], tr, div.E29oPb, div.kzNsGc')).filter(container => {
+    const rawContainers = Array.from(block.querySelectorAll('[role="radiogroup"], [role="group"]:not([role="listitem"]), [role="row"], tr, div.kzNsGc')).filter(container => {
       const opts = container.querySelectorAll('[role="radio"], [role="checkbox"]');
       return opts.length >= 2 && opts.length <= 10;
     });
 
-    if (containers.length > 1) {
-      return containers.map(container => {
-        const options = Array.from(container.querySelectorAll('[role="radio"], [role="checkbox"]'));
-        return {
-          element: container,
-          options: options,
-          hasChecked: options.some(o => o.getAttribute('aria-checked') === 'true')
-        };
-      });
-    }
+    if (rawContainers.length > 1) {
+      // Deduplicate: ensure no option is claimed by more than one row container
+      const distinctRows = [];
+      const claimedOpts = new Set();
 
-    // 2. 100% Reliable Fallback: Group all radios AND checkboxes by absolute document vertical position
-    const allOptions = Array.from(block.querySelectorAll('[role="radio"], [role="checkbox"]'));
-    if (allOptions.length >= 4) {
-      const scrollY = window.scrollY || window.pageYOffset || 0;
-      const rowMap = new Map();
-      for (const opt of allOptions) {
-        const rect = opt.getBoundingClientRect();
-        const absoluteTop = Math.round((rect.top + scrollY) / 15) * 15;
-        if (!rowMap.has(absoluteTop)) rowMap.set(absoluteTop, []);
-        rowMap.get(absoluteTop).push(opt);
+      for (const container of rawContainers) {
+        const opts = Array.from(container.querySelectorAll('[role="radio"], [role="checkbox"]'));
+        const unclaimed = opts.filter(o => !claimedOpts.has(o));
+        if (unclaimed.length >= 2) {
+          unclaimed.forEach(o => claimedOpts.add(o));
+          distinctRows.push({
+            element: container,
+            options: unclaimed,
+            hasChecked: unclaimed.some(o => o.getAttribute('aria-checked') === 'true')
+          });
+        }
       }
 
-      // Sort rows by vertical position top to bottom
-      const sortedKeys = Array.from(rowMap.keys()).sort((a, b) => a - b);
-      const groups = sortedKeys.map(k => rowMap.get(k)).filter(g => g.length >= 2);
+      if (distinctRows.length > 1) {
+        return distinctRows;
+      }
+    }
 
-      if (groups.length > 1) {
-        return groups.map(group => ({
+    // 2. 100% Reliable Fallback: Vertical clustering of options
+    const allOptions = Array.from(block.querySelectorAll('[role="radio"], [role="checkbox"]'));
+    if (allOptions.length >= 4) {
+      // Sort all options vertically
+      const sorted = [...allOptions].sort((a, b) => {
+        const rA = a.getBoundingClientRect();
+        const rB = b.getBoundingClientRect();
+        return rA.top - rB.top;
+      });
+
+      const clusters = [];
+      let currentCluster = [sorted[0]];
+      let currentTop = sorted[0].getBoundingClientRect().top;
+
+      for (let i = 1; i < sorted.length; i++) {
+        const opt = sorted[i];
+        const top = opt.getBoundingClientRect().top;
+        if (Math.abs(top - currentTop) <= 18) {
+          currentCluster.push(opt);
+        } else {
+          if (currentCluster.length >= 2) {
+            clusters.push(currentCluster);
+          }
+          currentCluster = [opt];
+          currentTop = top;
+        }
+      }
+      if (currentCluster.length >= 2) {
+        clusters.push(currentCluster);
+      }
+
+      if (clusters.length > 1) {
+        return clusters.map(group => ({
           element: group[0].parentElement || block,
           options: group,
           hasChecked: group.some(o => o.getAttribute('aria-checked') === 'true')
@@ -561,8 +778,8 @@
     return [];
   }
 
-  // Unified Grid Handler (Supports BOTH Multiple-Choice Grids and Checkbox Grids)
-  async function fillGridQuestionUnified(item, title, fixedAnswer) {
+  // Unified Grid Handler (Supports BOTH Multiple-Choice Grids and Checkbox Grids + AI Mode)
+  async function fillGridQuestionUnified(item, title, fixedAnswer, aiAnswers, blockIndex) {
     const rows = getGridRowsFromBlock(item);
     if (!rows || rows.length <= 1) {
       return null;
@@ -583,6 +800,7 @@
       if (options.length === 0) continue;
 
       let chosen = null;
+      // Fixed answer override
       if (fixedAnswer) {
         chosen = options.find(opt => {
           const text = (opt.getAttribute('aria-label') || opt.getAttribute('data-value') || opt.getAttribute('data-answer-value') || opt.innerText || '').toLowerCase();
@@ -590,11 +808,43 @@
         });
       }
 
+      // AI Answer for this specific row
+      if (!chosen && aiAnswers) {
+        const rowKey = `block_${blockIndex}_row_${r}`;
+        let aiVal = aiAnswers[rowKey];
+        if (Array.isArray(aiVal) && aiVal.length > 0) {
+          aiVal = aiVal[0];
+        }
+        if (aiVal !== undefined && aiVal !== null) {
+          const aiStr = String(aiVal).trim().toLowerCase();
+          chosen = options.find(opt => {
+            const text = (opt.getAttribute('aria-label') || opt.getAttribute('data-value') || opt.getAttribute('data-answer-value') || opt.innerText || '').toLowerCase();
+            return text === aiStr || text.startsWith(aiStr);
+          });
+          if (!chosen) {
+            console.warn(`[FormPilot AI] Grid row answer "${aiVal}" invalid for row ${r + 1} of "${title}". Falling back to random.`);
+          }
+        }
+      }
+
+      // Random fallback
       if (!chosen) {
         chosen = options[Math.floor(Math.random() * options.length)];
       }
 
-      await safeSelectOption(chosen);
+      let success = await safeSelectOption(chosen);
+      // If safeSelectOption failed to check, try another option in the row
+      if (!success && row.options.length > 1) {
+        for (const fallbackOpt of row.options) {
+          if (fallbackOpt !== chosen) {
+            success = await safeSelectOption(fallbackOpt);
+            if (success) {
+              chosen = fallbackOpt;
+              break;
+            }
+          }
+        }
+      }
 
       const val = (chosen.getAttribute('aria-label') || chosen.getAttribute('data-value') || chosen.innerText || `Option ${r + 1}`).trim();
       selectedValues.push(val);
@@ -604,12 +854,12 @@
     return { type: 'Grid Question', value: selectedValues.join(' | ') };
   }
 
-  // Single Question Radio Handler (Multiple choice & Linear scale)
-  async function fillRadioQuestion(item, title, fixedAnswer) {
+  // Single Question Radio Handler (Multiple choice & Linear scale + AI validation)
+  async function fillRadioQuestion(item, title, fixedAnswer, aiAnswer) {
     const radios = Array.from(item.querySelectorAll('[role="radio"]'));
     if (radios.length === 0) return null;
 
-    // If one is already selected, skip
+    // If one is already selected and no fixed override, skip
     const alreadyChecked = item.querySelector('[role="radio"][aria-checked="true"]');
     if (alreadyChecked && !fixedAnswer) {
       return { type: 'Multiple choice', value: (alreadyChecked.getAttribute('aria-label') || alreadyChecked.innerText || 'Selected').trim() };
@@ -619,6 +869,7 @@
     const typeLabel = isLinearScale ? 'Linear scale' : 'Multiple choice';
 
     let chosen = null;
+    // 1. Fixed Answer Override
     if (fixedAnswer) {
       chosen = radios.find(r => {
         const label = (
@@ -632,6 +883,25 @@
       });
     }
 
+    // 2. AI Answer Validation
+    if (!chosen && aiAnswer !== undefined && aiAnswer !== null) {
+      const aiStr = String(aiAnswer).trim().toLowerCase();
+      chosen = radios.find(r => {
+        const label = (
+          r.getAttribute('aria-label') ||
+          r.getAttribute('data-value') ||
+          r.innerText ||
+          r.textContent ||
+          ''
+        ).trim().toLowerCase();
+        return label === aiStr || label.startsWith(aiStr);
+      });
+      if (!chosen) {
+        console.warn(`[FormPilot AI] Radio answer "${aiAnswer}" invalid for "${title}". Falling back to random.`);
+      }
+    }
+
+    // 3. Random Fallback
     if (!chosen) {
       const standardRadios = radios.filter(r => {
         const label = (r.getAttribute('aria-label') || r.innerText || '').trim().toLowerCase();
@@ -654,13 +924,14 @@
     return { type: typeLabel, value: val };
   }
 
-  // Standalone Checkbox Handler (Single question with multiple options)
-  async function fillCheckboxQuestion(item, title, fixedAnswer) {
+  // Standalone Checkbox Handler (Single question with multiple options + AI validation)
+  async function fillCheckboxQuestion(item, title, fixedAnswer, aiAnswer) {
     const checkboxes = Array.from(item.querySelectorAll('[role="checkbox"]'));
     if (checkboxes.length === 0) return null;
 
     const picked = [];
 
+    // 1. Fixed Answer Override
     if (fixedAnswer) {
       const targetAnswers = fixedAnswer.split(',').map(s => s.trim().toLowerCase());
       let matchedAny = false;
@@ -690,7 +961,44 @@
       }
     }
 
-    // Pick 1 to 3 distinct random options
+    // 2. AI Answer Validation
+    if (aiAnswer !== undefined && aiAnswer !== null) {
+      let targetAnswers = [];
+      if (Array.isArray(aiAnswer)) {
+        targetAnswers = aiAnswer.map(s => String(s).trim().toLowerCase());
+      } else {
+        targetAnswers = [String(aiAnswer).trim().toLowerCase()];
+      }
+
+      let matchedAny = false;
+      for (const cb of checkboxes) {
+        const label = (
+          cb.getAttribute('aria-label') ||
+          cb.getAttribute('data-answer-value') ||
+          cb.innerText ||
+          cb.textContent ||
+          ''
+        ).trim().toLowerCase();
+
+        const isMatch = targetAnswers.some(ans => label === ans || label.startsWith(ans));
+        if (isMatch) {
+          if (cb.getAttribute('aria-checked') !== 'true') {
+            await safeSelectOption(cb);
+            await sleep(50);
+          }
+          picked.push((cb.getAttribute('aria-label') || cb.innerText || cb.textContent || 'Option').trim());
+          matchedAny = true;
+        }
+      }
+
+      if (matchedAny) {
+        return { type: 'Checkboxes (AI)', value: picked.join(', ') };
+      } else {
+        console.warn(`[FormPilot AI] Checkbox answer "${JSON.stringify(aiAnswer)}" did not match options for "${title}". Falling back to random.`);
+      }
+    }
+
+    // 3. Random Fallback: Pick 1 to 3 distinct random options
     const standardCbs = checkboxes.filter(cb => {
       const label = (cb.getAttribute('aria-label') || cb.innerText || '').trim().toLowerCase();
       return !label.startsWith('other');
@@ -711,23 +1019,33 @@
     return { type: 'Checkboxes', value: picked.join(', ') };
   }
 
-  async function fillParagraphQuestion(item, title, fixedAnswer, persona) {
+  async function fillParagraphQuestion(item, title, fixedAnswer, persona, aiAnswer) {
     const textarea = item.querySelector('textarea');
     if (!textarea) return null;
 
-    const val = fixedAnswer || persona.getTextForTitle(title, 'textarea');
+    let val = fixedAnswer;
+    if (!val && aiAnswer) {
+      val = String(aiAnswer).trim();
+    }
+    val = val || persona.getTextForTitle(title, 'textarea');
+
     textarea.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     await sleep(30);
     setNativeValue(textarea, val);
     return { type: 'Paragraph', value: val };
   }
 
-  async function fillShortAnswerQuestion(item, title, fixedAnswer, persona) {
+  async function fillShortAnswerQuestion(item, title, fixedAnswer, persona, aiAnswer) {
     const input = item.querySelector('input[type="text"], input[type="email"], input[type="number"], input[type="tel"], input[type="url"], input:not([type])');
     if (!input || input.type === 'hidden') return null;
 
     const inputType = input.getAttribute('type') || 'text';
-    const val = fixedAnswer || persona.getTextForTitle(title, inputType);
+    let val = fixedAnswer;
+    if (!val && aiAnswer) {
+      val = String(aiAnswer).trim();
+    }
+    val = val || persona.getTextForTitle(title, inputType);
+
     input.scrollIntoView({ behavior: 'auto', block: 'nearest' });
     await sleep(30);
     setNativeValue(input, val);
@@ -735,36 +1053,37 @@
   }
 
   // Single Question Handler
-  async function fillSingleQuestion(item, persona, fixedAnswers, useRandomFallback = true) {
+  async function fillSingleQuestion(item, persona, fixedAnswers, useRandomFallback = true, aiAnswers = null, blockIndex = 0) {
     try {
       const title = getQuestionTitle(item);
       const fixedAnswer = findFixedAnswer(title, fixedAnswers);
+      const blockAiAns = aiAnswers ? aiAnswers[`block_${blockIndex}`] : null;
 
       if (isFileUpload(item)) {
-        console.warn(`[FormFiller] Skipping file-upload question: "${title}"`);
+        console.warn(`[FormPilot] Skipping file-upload question: "${title}"`);
         return { type: 'File Upload (Skipped)', value: '[SKIPPED]' };
       }
 
-      if (!fixedAnswer && !useRandomFallback) {
+      if (!fixedAnswer && !blockAiAns && !useRandomFallback) {
         return null;
       }
 
-      let result = await fillDateQuestion(item, title, fixedAnswer);
-      if (!result) result = await fillTimeQuestion(item, title, fixedAnswer);
-      if (!result) result = await fillDropdownQuestion(item, title, fixedAnswer);
-      if (!result) result = await fillGridQuestionUnified(item, title, fixedAnswer);
-      if (!result) result = await fillRadioQuestion(item, title, fixedAnswer);
-      if (!result) result = await fillCheckboxQuestion(item, title, fixedAnswer);
-      if (!result) result = await fillParagraphQuestion(item, title, fixedAnswer, persona);
-      if (!result) result = await fillShortAnswerQuestion(item, title, fixedAnswer, persona);
+      let result = await fillDateQuestion(item, title, fixedAnswer, blockAiAns);
+      if (!result) result = await fillTimeQuestion(item, title, fixedAnswer, blockAiAns);
+      if (!result) result = await fillDropdownQuestion(item, title, fixedAnswer, blockAiAns);
+      if (!result) result = await fillGridQuestionUnified(item, title, fixedAnswer, aiAnswers, blockIndex);
+      if (!result) result = await fillRadioQuestion(item, title, fixedAnswer, blockAiAns);
+      if (!result) result = await fillCheckboxQuestion(item, title, fixedAnswer, blockAiAns);
+      if (!result) result = await fillParagraphQuestion(item, title, fixedAnswer, persona, blockAiAns);
+      if (!result) result = await fillShortAnswerQuestion(item, title, fixedAnswer, persona, blockAiAns);
 
       if (result) {
-        console.log(`[FormFiller] Question: "${title || '(Untitled)'}" | Type: ${result.type} | Value: "${result.value}"`);
+        console.log(`[FormPilot] Question: "${title || '(Untitled)'}" | Type: ${result.type} | Value: "${result.value}"`);
         return result;
       }
       return null;
     } catch (err) {
-      console.warn('[FormFiller] Error filling question block:', err);
+      console.warn('[FormPilot] Error filling question block:', err);
       return null;
     }
   }
@@ -778,8 +1097,10 @@
         for (const row of rows) {
           const hasChecked = row.options.some(o => o.getAttribute('aria-checked') === 'true');
           if (!hasChecked && row.options.length > 0) {
-            const pick = row.options[Math.floor(Math.random() * row.options.length)];
-            await safeSelectOption(pick);
+            for (const pick of row.options) {
+              const success = await safeSelectOption(pick);
+              if (success) break;
+            }
             await sleep(50);
           }
         }
@@ -828,8 +1149,10 @@
       for (const row of rows) {
         const hasChecked = row.options.some(o => o.getAttribute('aria-checked') === 'true');
         if (!hasChecked && row.options.length > 0) {
-          const pick = row.options[Math.floor(Math.random() * row.options.length)];
-          await safeSelectOption(pick);
+          for (const pick of row.options) {
+            const success = await safeSelectOption(pick);
+            if (success) break;
+          }
           await sleep(50);
         }
       }
@@ -845,7 +1168,10 @@
           for (const row of rows) {
             const hasChecked = row.options.some(o => o.getAttribute('aria-checked') === 'true');
             if (!hasChecked && row.options.length > 0) {
-              await safeSelectOption(row.options[Math.floor(Math.random() * row.options.length)]);
+              for (const pick of row.options) {
+                const success = await safeSelectOption(pick);
+                if (success) break;
+              }
               await sleep(50);
             }
           }
@@ -925,7 +1251,6 @@
 
   // Directly navigates the browser to a fresh form URL without requiring user clicks
   async function navigateToFreshForm() {
-    // 1. Look for "Submit another response" link
     const links = Array.from(document.querySelectorAll('a'));
     const link = links.find(a =>
       /submit another response/i.test(a.innerText || a.textContent || '')
@@ -938,7 +1263,7 @@
       targetUrl = window.location.href.split('?')[0].replace(/\/formResponse.*$/, '/viewform');
     }
 
-    console.log(`[FormFiller] Auto-navigating to fresh form: ${targetUrl}`);
+    console.log(`[FormPilot] Auto-navigating to fresh form: ${targetUrl}`);
     if (link) {
       try { link.click(); } catch (_) {}
     }
@@ -958,7 +1283,7 @@
       if (!(await isStillRunning())) return false;
       attempt++;
 
-      console.log(`[FormFiller] Clicking Next button (attempt ${attempt})...`);
+      console.log(`[FormPilot] Clicking Next button (attempt ${attempt})...`);
       safeClickButton(nextBtn);
 
       const waitStart = Date.now();
@@ -990,7 +1315,7 @@
         }
       }
 
-      console.warn(`[FormFiller] Page did not advance after attempt ${attempt}. Self-healing missing fields...`);
+      console.warn(`[FormPilot] Page did not advance after attempt ${attempt}. Self-healing missing fields...`);
       await chrome.storage.local.set({
         currentPageStatus: `Advancing from ${startPageInfo.pageText || 'current page'} (Retry ${attempt})...`
       });
@@ -1012,7 +1337,7 @@
       }
 
       if (attempt >= 5) {
-        console.warn(`[FormFiller] Still on ${startPageInfo.pageText || 'same page'}. If an ad blocker (e.g. uBlock Origin) is active, please pause it for docs.google.com.`);
+        console.warn(`[FormPilot] Still on ${startPageInfo.pageText || 'same page'}. If an ad blocker (e.g. uBlock Origin) is active, please pause it for docs.google.com.`);
       }
     }
   }
@@ -1024,7 +1349,7 @@
       if (!(await isStillRunning())) return false;
       attempt++;
 
-      console.log(`[FormFiller] Clicking final Submit button (attempt ${attempt})...`);
+      console.log(`[FormPilot] Clicking final Submit button (attempt ${attempt})...`);
       safeClickButton(submitBtn);
 
       const waitStart = Date.now();
@@ -1033,13 +1358,13 @@
         await sleep(300);
 
         if (isActualConfirmationPage()) {
-          console.log('[FormFiller] Final confirmation page reached!');
+          console.log('[FormPilot] Final confirmation page reached!');
           await handleConfirmationPage();
           return true;
         }
       }
 
-      console.warn(`[FormFiller] Confirmation not reached yet. Re-verifying fields on final page...`);
+      console.warn(`[FormPilot] Confirmation not reached yet. Re-verifying fields on final page...`);
       await ensurePageCompletelyFilled(visibleBlocks, persona, fixedAnswers, useRandomFallback);
       await sleep(400);
 
@@ -1055,7 +1380,7 @@
     }
   }
 
-  // Main Form Filling Routine supporting Multi-Page Forms
+  // Main Form Filling Routine supporting Multi-Page Forms & Gemini AI
   async function fillAndSubmitForm() {
     if (isFillingActive) {
       return;
@@ -1066,28 +1391,45 @@
 
     isFillingActive = true;
     try {
-      const state = await chrome.storage.local.get(['fixedAnswers', 'done', 'total', 'useRandomFallback']);
+      const state = await chrome.storage.local.get([
+        'fixedAnswers', 'done', 'total', 'useRandomFallback',
+        'useAiAnswers', 'personaHint', 'apiKey'
+      ]);
       const fixedAnswers = state.fixedAnswers || [];
       const done = state.done || 0;
       const total = state.total || 10;
       const useRandomFallback = state.useRandomFallback !== false;
+      const useAiAnswers = Boolean(state.useAiAnswers);
+      const personaHint = state.personaHint || '';
 
-      console.log(`%c[FormFiller] === Starting Form Submission (${done + 1} / ${total}) ===`, 'color: #673ab7; font-weight: bold; font-size: 14px;');
+      // If AI mode is on, verify API key
+      if (useAiAnswers) {
+        if (!state.apiKey || !state.apiKey.trim()) {
+          console.error('[FormPilot] Gemini API key is missing. Halting.');
+          await chrome.storage.local.set({
+            running: false,
+            statusMessage: 'Stopped: Gemini API key missing. Open settings to configure.'
+          });
+          return;
+        }
+      }
+
+      console.log(`%c[FormPilot] === Starting Form Submission (${done + 1} / ${total}) [Mode: ${useAiAnswers ? 'Gemini AI' : 'Random'}] ===`, 'color: #673ab7; font-weight: bold; font-size: 14px;');
 
       const persona = createPersona();
       let pageStep = 1;
-      const maxSteps = 150; // Plenty of headroom for 43 pages
+      const maxSteps = 150; // Plenty of headroom for 43+ pages
 
       while (pageStep <= maxSteps) {
         if (!(await isStillRunning())) {
-          console.log('[FormFiller] Aborted by user.');
+          console.log('[FormPilot] Aborted by user.');
           return;
         }
 
         const pageInfo = getCurrentPageInfo();
         const pageLabel = pageInfo.pageText || `Step ${pageStep}`;
 
-        console.log(`%c[FormFiller] --- Processing ${pageLabel} ---`, 'color: #1976d2; font-weight: bold;');
+        console.log(`%c[FormPilot] --- Processing ${pageLabel} ---`, 'color: #1976d2; font-weight: bold;');
         await chrome.storage.local.set({
           currentPageStatus: `Filling ${pageLabel} (Response ${done + 1} / ${total})...`
         });
@@ -1095,26 +1437,87 @@
         // 1. Get visible questions on current page
         await sleep(300);
         const visibleBlocks = getVisibleQuestionBlocks();
-        console.log(`[FormFiller] ${pageLabel}: Found ${visibleBlocks.length} visible items.`);
+        console.log(`[FormPilot] ${pageLabel}: Found ${visibleBlocks.length} visible items.`);
 
-        // 2. Fill all visible questions on this page
-        for (let i = 0; i < visibleBlocks.length; i++) {
-          if (!(await isStillRunning())) return;
-          const block = visibleBlocks[i];
-          await fillSingleQuestion(block, persona, fixedAnswers, useRandomFallback);
+        // 2. If AI mode is enabled, request answers for visible questions in ONE request
+        let aiAnswers = null;
+        if (useAiAnswers && visibleBlocks.length > 0) {
+          const aiQuestions = scanVisibleQuestionsForAi(visibleBlocks);
+          if (aiQuestions.length > 0) {
+            await chrome.storage.local.set({
+              currentPageStatus: `Generating AI answers for ${pageLabel} via Gemini...`
+            });
 
-          if (i < visibleBlocks.length - 1) {
-            await randomDelay(80, 200);
+            try {
+              const aiRes = await chrome.runtime.sendMessage({
+                action: 'GET_AI_ANSWERS',
+                questions: aiQuestions,
+                personaHint: personaHint,
+                submissionIndex: done
+              });
+
+              if (aiRes && aiRes.success) {
+                aiAnswers = aiRes.answers || {};
+                console.log(`[FormPilot] Received Gemini AI answers for ${pageLabel}:`, aiAnswers);
+              } else {
+                const errMsg = aiRes ? (aiRes.message || aiRes.error) : 'Unknown AI error';
+                console.warn(`[FormPilot] Gemini AI generation error: ${errMsg}`);
+
+                if (/invalid api key/i.test(errMsg)) {
+                  await chrome.storage.local.set({
+                    running: false,
+                    statusMessage: 'Stopped: Invalid Gemini API key. Check settings.'
+                  });
+                  return;
+                }
+                if (/rate limit/i.test(errMsg)) {
+                  await chrome.storage.local.set({
+                    running: false,
+                    statusMessage: 'Stopped: Gemini API rate limit exceeded.'
+                  });
+                  return;
+                }
+
+                if (!useRandomFallback) {
+                  await chrome.storage.local.set({
+                    running: false,
+                    statusMessage: `Stopped: ${errMsg}`
+                  });
+                  return;
+                }
+                console.log('[FormPilot] Falling back to random dummy data for this page.');
+              }
+            } catch (msgErr) {
+              console.warn('[FormPilot] Error communicating with background worker:', msgErr);
+              if (!useRandomFallback) {
+                await chrome.storage.local.set({
+                  running: false,
+                  statusMessage: 'Stopped: Failed to contact background worker.'
+                });
+                return;
+              }
+            }
           }
         }
 
-        // 3. Pre-flight verification: Guarantee ALL required fields and grid rows are filled!
+        // 3. Fill all visible questions on this page
+        for (let i = 0; i < visibleBlocks.length; i++) {
+          if (!(await isStillRunning())) return;
+          const block = visibleBlocks[i];
+          await fillSingleQuestion(block, persona, fixedAnswers, useRandomFallback, aiAnswers, i);
+
+          if (i < visibleBlocks.length - 1) {
+            await randomDelay(60, 150);
+          }
+        }
+
+        // 4. Pre-flight verification: Guarantee ALL required fields and grid rows are filled!
         await ensurePageCompletelyFilled(visibleBlocks, persona, fixedAnswers, useRandomFallback);
 
         if (!(await isStillRunning())) return;
         await sleep(200);
 
-        // 4. Look for navigation buttons (with polling grace period)
+        // 5. Look for navigation buttons (with polling grace period)
         let submitBtn = findSubmitButton();
         let nextBtn = findNextButton();
 
@@ -1140,14 +1543,14 @@
 
         // Handle Submit button on final page (Page 43)
         if (submitBtn) {
-          console.log(`[FormFiller] Found Submit button on ${pageLabel}. Submitting final form response...`);
+          console.log(`[FormPilot] Found Submit button on ${pageLabel}. Submitting final form response...`);
           await clickSubmitWithRetry(submitBtn, visibleBlocks, persona, fixedAnswers, useRandomFallback);
           return;
         }
 
         // Handle Next button on intermediate pages with an UNSTOPPABLE retry loop
         if (nextBtn) {
-          console.log(`[FormFiller] ${pageLabel} complete. Advancing to next page...`);
+          console.log(`[FormPilot] ${pageLabel} complete. Advancing to next page...`);
           const advanced = await advanceToNextPageUnstoppable(nextBtn, pageInfo, visibleBlocks, persona, fixedAnswers, useRandomFallback);
           if (!advanced) {
             return; // Stopped by user
@@ -1157,7 +1560,7 @@
         }
 
         // If navigation button temporarily not found, wait and retry without stopping
-        console.warn(`[FormFiller] Navigation button temporarily not visible on ${pageLabel}. Waiting...`);
+        console.warn(`[FormPilot] Navigation button temporarily not visible on ${pageLabel}. Waiting...`);
         await sleep(1500);
       }
     } finally {
@@ -1171,12 +1574,14 @@
     isHandlingConfirmation = true;
 
     try {
-      const data = await chrome.storage.local.get(['running', 'done', 'total', 'delay', 'lastRecordedAt']);
+      const data = await chrome.storage.local.get(['running', 'done', 'total', 'delay', 'lastRecordedAt', 'useAiAnswers']);
       if (!data.running) return;
 
       const total = Number(data.total) || 10;
       let currentDone = Number(data.done) || 0;
-      const delay = data.delay !== undefined ? Number(data.delay) : 2;
+      // Default 4 seconds delay in AI mode to respect Gemini API rate limits
+      const defaultDelay = data.useAiAnswers ? 4 : 2;
+      const delay = data.delay !== undefined ? Number(data.delay) : defaultDelay;
 
       // Deduplicate: If confirmation was processed within the last 5 seconds, don't increment done again
       const now = Date.now();
@@ -1189,7 +1594,7 @@
         });
       }
 
-      console.log(`[FormFiller] Confirmation recorded! Done: ${currentDone} / ${total}`);
+      console.log(`[FormPilot] Confirmation recorded! Done: ${currentDone} / ${total}`);
 
       if (currentDone >= total) {
         await chrome.storage.local.set({
@@ -1198,7 +1603,7 @@
           statusMessage: `Finished (${currentDone} / ${total})`,
           currentPageStatus: 'All responses completed.'
         });
-        console.log(`%c[FormFiller] Completed all ${total} responses across all pages! Finished.`, 'color: #2e7d32; font-weight: bold;');
+        console.log(`%c[FormPilot] Completed all ${total} responses across all pages! Finished.`, 'color: #2e7d32; font-weight: bold;');
         return;
       }
 
@@ -1209,13 +1614,13 @@
         currentPageStatus: `Waiting ${delay}s before starting Response ${currentDone + 1}...`
       });
 
-      console.log(`[FormFiller] Waiting ${delay}s before next response...`);
+      console.log(`[FormPilot] Waiting ${delay}s before next response...`);
       const delayMs = Math.max(500, delay * 1000);
       const steps = Math.ceil(delayMs / 100);
       for (let s = 0; s < steps; s++) {
         await sleep(100);
         if (!(await isStillRunning())) {
-          console.log('[FormFiller] Stopped during delay interval.');
+          console.log('[FormPilot] Stopped during delay interval.');
           return;
         }
       }
@@ -1302,7 +1707,7 @@
       isRunningCached = false;
       isFillingActive = false;
       isHandlingConfirmation = false;
-      console.log('[FormFiller] Received STOP command from popup.');
+      console.log('[FormPilot] Received STOP command from popup.');
       sendResponse({ status: 'stopped' });
     } else if (request.action === 'SCAN_QUESTIONS') {
       const visible = getVisibleQuestionBlocks();

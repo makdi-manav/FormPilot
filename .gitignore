@@ -40,6 +40,14 @@ node_modules/
 .env
 .env.local
 .env.*.local
+*.key
+*.pem
+*.crt
+api_key*
+*key.txt
+*.token
+local.settings*
+local.settings.json
 
 # Temporary / Scratch files
 tmp/
