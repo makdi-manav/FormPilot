@@ -354,6 +354,11 @@ body {
   font-size: 12px;
 }
 
+.form-input-sm {
+  font-size: 12.5px;
+  padding: 8px 12px;
+}
+
 .options-footer {
   text-align: center;
   font-size: 12px;

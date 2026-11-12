@@ -1,57 +1,43 @@
-# FormPilot: Google Forms Auto-Filler & AI Testing Engine (v1.2.0)
+# FormPilot: Universal AI Google Forms Auto-Filler (v1.3.0)
 
-A high-performance Chrome Extension (Manifest V3) that automates filling and submitting Google Forms for testing. Supports **Random Dummy Data**, **Fixed Answer Rules**, and **Gemini AI Vision Answering Mode** with automatic multimodal stimulus analysis, persona generation, diverse writing styles, and dynamic model selection across **1 to 50+ multi-page forms**.
+A high-performance Chrome Extension (Manifest V3) that automates filling and submitting Google Forms for testing. Supports **Random Dummy Data**, **Fixed Answer Rules**, and **Universal AI Vision Answering** with any AI provider and model: **Google Gemini**, **OpenAI (ChatGPT)**, **Anthropic Claude**, **OpenRouter**, **Groq**, or **Custom OpenAI-Compatible / Local Ollama**.
 
 ---
 
-## 🌟 What's New in v1.2.0: Multimodal Vision, Model Selector & Humanized Styles
+## 🌟 What's New in v1.3.0: Universal AI Provider Support
 
-- **👁️ Multimodal Vision (Stimulus-Aware Answering)**:
-  - FormPilot now inspects every section and extracts all visible stimulus images (product renderings, coaster designs, diagrams, and question-embedded photos).
-  - Fetches images directly in the background worker, encodes them into high-fidelity `inline_data` Base64 payloads, and passes them to Gemini prior to question text.
-  - Instructs the model to inspect actual physical attributes (shape, color, material, texture, pattern, setting, text).
-  - Makes one targeted Gemini call per section/stimulus so each question group has its own visual context.
-  - Graceful fallback: If an image cannot be downloaded, answers from text and surfaces a non-blocking warning: *"Couldn't load image for section X"*.
-- **🎛️ Dynamic Model Selector & Temperature Slider (Options Page)**:
-  - Replaces hardcoded text with a dynamic model dropdown and a **"🔄 Refresh Models"** button.
-  - Calls Gemini's `GET /models` endpoint, filters models supporting `generateContent`, strips `models/` prefix, and ranks newest Pro and Flash models at the top.
-  - Automatic fallback with alert if a previously chosen model becomes unavailable.
-  - Added an interactive **Temperature Slider** (0.7 to 1.2, default 1.0) with live value indicator.
+- **🌐 Use ANY AI Model with Your API Key**:
+  - **Google Gemini**: `gemini-2.5-flash`, `gemini-2.5-pro`, `gemini-2.0-flash`, `gemini-1.5-flash`.
+  - **OpenAI**: `gpt-4o`, `gpt-4o-mini`, `gpt-4-turbo`, `o1`, `o3-mini`.
+  - **Anthropic Claude**: `claude-3-5-sonnet-20241022`, `claude-3-5-haiku-20241022`, `claude-3-opus`.
+  - **OpenRouter**: Access 200+ models (Claude, Llama 3, DeepSeek, Qwen, Mistral) with a single OpenRouter key.
+  - **Groq**: Ultra-fast vision and inference (`llama-3.2-11b-vision-preview`, `llama-3.2-90b-vision-preview`).
+  - **Custom / Local**: DeepSeek (`https://api.deepseek.com/v1`), Ollama (`http://localhost:11434/v1`), vLLM, Together AI, LM Studio.
+- **👁️ Multimodal Vision Across All Providers**:
+  - Automatically extracts section stimulus images, encodes them as Base64, and passes them in the native vision schema of your chosen provider.
+- **🎛️ Dynamic Model Selector & Temperature Slider**:
+  - Pulls live models from your provider or allows entering any exact model identifier.
+  - Interactive temperature slider (0.0 to 1.5, default 1.0).
 - **🎭 Realistic Respondent Personas & 4 Diverse Writing Styles**:
-  - Synthesizes detailed demographic profiles per submission (age 18–60, gender, Indian city, occupation, education, income bracket, tech comfort).
-  - Dynamically assigns 1 of 4 humanized writing styles per respondent:
-    1. **Terse** (~35%): 3 to 8 words only, direct, concise, no filler.
-    2. **Casual** (~30%): mostly lowercase, conversational tone, informal phrasing, natural minor typos/slang.
-    3. **Average** (~25%): one plain, everyday sentence.
-    4. **Detailed** (~10%): 2 to 3 sentences with concrete real-world details.
-  - For optional questions (`required: false`), skips answering about 20% of the time to replicate real participant behavior.
-  - **Cross-Section Taste Consistency**: Maintains respondent memory across sections so feedback on Coaster S01 and Coaster S02 feels consistent with that person's personality.
-  - **Duplicate Detection & Auto-Rewrite**: Tracks open-ended text answers across the entire run. If Gemini repeats a phrase verbatim, FormPilot automatically requests a single distinct rewrite.
-- **🎯 Fixed Answers Still Override Everything**:
-  - Specific keyword rules (e.g. `resident -> Yes`) strictly take priority over any AI or random answer.
+  - Terse (~35%), Casual (~30%), Average (~25%), Detailed (~10%).
+  - Humanized ~20% skipping of optional questions.
+  - Cross-section taste consistency and anti-duplicate answer rewriting.
 
 ---
 
-## 🔑 Getting Started with Gemini AI Mode
+## 🔑 How to Configure Any AI Provider
 
-### 1. Get a Free Gemini API Key
-1. Visit [Google AI Studio](https://aistudio.google.com/app/apikey).
-2. Sign in with your Google account.
-3. Click **"Create API key"** and copy your key.
-
-> [!NOTE]
-> **Free Tier Privacy Disclosure**: Under Google AI Studio's free tier, prompts and responses may be processed and reviewed by human reviewers to train and improve Google products. **Never submit real, confidential, proprietary, or personally identifiable data (PII).**
-
-> [!WARNING]
-> **Ethical & Authorized Testing Only**: Use FormPilot and AI mode **ONLY on your own forms** or forms where you have explicit authorization to conduct testing. Never use automated tools to spam or submit unauthorized responses.
-
-### 2. Configure Settings in Extension
-1. Click the **FormPilot** extension icon in your Chrome toolbar.
-2. Click the **⚙️ Settings** button at the top of the popup (or right-click the extension icon and select **Options**).
-3. Paste your Gemini API key.
-4. Select your preferred model from the dropdown (e.g. `gemini-2.5-flash` or `gemini-2.5-pro`), or click **"🔄 Refresh Models"** to pull the latest models directly from Google.
-5. Adjust the **Temperature** slider (default: `1.0`).
-6. Click **"Test Key"** to verify connection, then click **"Save Settings"**.
+1. Click the **FormPilot** extension icon in your Chrome toolbar and click **⚙️ Settings** (or right-click $\to$ **Options**).
+2. Choose your **AI Service Provider**:
+   - **Google Gemini**: Get a key at [Google AI Studio](https://aistudio.google.com/app/apikey).
+   - **OpenAI**: Get a key at [OpenAI Platform](https://platform.openai.com/api-keys).
+   - **Anthropic Claude**: Get a key at [Anthropic Console](https://console.anthropic.com/settings/keys).
+   - **OpenRouter**: Get a key at [OpenRouter](https://openrouter.ai/keys).
+   - **Groq**: Get a key at [Groq Console](https://console.groq.com/keys).
+   - **Custom / Ollama**: Enter your Base URL (e.g. `http://localhost:11434/v1` or `https://api.deepseek.com/v1`) and your key (or `none`).
+3. Select a recommended vision model or type your exact model name into the custom model input.
+4. Click **"⚡ Test Connection"** to verify that your key and model are active and working.
+5. Click **"💾 Save Settings"**.
 
 ---
 
@@ -71,66 +57,22 @@ A high-performance Chrome Extension (Manifest V3) that automates filling and sub
 
 ---
 
-## 🚀 How to Run & Verify Vision: Step-by-Step Testing Walkthrough
+## 🚀 How to Run: Step-by-Step Testing Walkthrough
 
-### Phase 1: Test with 2 Responses First & Verify Image Answers
-Before running large batches, verify that vision and persona styles reflect the images on screen:
-
-1. Open your target Google Form:
-   ```text
-   https://docs.google.com/forms/d/e/.../viewform
-   ```
-2. Open Chrome DevTools Console: Press <kbd>F12</kbd> (or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd>) and click the **Console** tab.
-3. Open the FormPilot popup:
-   - Toggle **"Use AI answers (Gemini)"** to **ON**.
+1. Open your target Google Form tab and refresh the page (<kbd>Ctrl</kbd>+<kbd>R</kbd> or <kbd>F5</kbd>).
+2. Open DevTools Console: Press <kbd>F12</kbd> (or <kbd>Ctrl</kbd>+<kbd>Shift</kbd>+<kbd>I</kbd>) and click **Console**.
+3. Open FormPilot popup:
+   - Toggle **"Use AI answers"** **ON**.
+   - Notice the badge shows your active provider (e.g. `OPENAI`, `GEMINI`, `ANTHROPIC`, `GROQ`).
    - *(Optional)* Add a Persona hint (e.g. `college students in Pune`).
    - Set **"How many responses"** to `2`.
    - Ensure **Delay** is `4` seconds.
 4. Click **▶ Start Filling**.
-5. Observe the live execution:
-   - FormPilot extracts the visible coaster image and passes it to Gemini.
-   - Look at the console logs:
-     ```text
-     [FormPilot Service Worker] Processing Section "S01" for Response #1. Style: terse. Images found: 1
-     [FormPilot] Received Gemini AI vision answers for Page 2 (S01): { ... }
-     ```
-   - Compare the selected options / written feedback with the image shown on screen (e.g., notice it recognizes whether the coaster is geometric or organic, honeycomb or solid, blue or brown).
-   - Response 2 will automatically receive a completely different persona (e.g. Style: *casual* or *detailed*) and generate fresh, non-repetitive descriptions.
-
-### Phase 2: Batch Submit 10 Responses
-Once the 2-response run succeeds:
-1. Re-open the extension popup.
-2. Set **"How many responses"** to `10`.
-3. Click **▶ Start Filling**.
-4. FormPilot will handle all 10 submissions autonomously. If Gemini returns an HTTP 429 rate limit, FormPilot pauses for 20 seconds and retries up to 3 times automatically.
-
----
-
-## 📋 Supported Question Types in AI Vision Mode
-
-| Question Type | Detection Strategy | AI Vision Mode Handling | Fallback Behavior |
-| :--- | :--- | :--- | :--- |
-| **Multiple Choice** | `div[role="radio"]` | Matches option verbatim from Gemini response | Picks random standard option |
-| **Checkboxes** | `div[role="checkbox"]` | Checks all options returned in the AI array | Checks 1–3 random options |
-| **Dropdown** | `div[role="listbox"]`, `<select>` | Matches option text case-insensitively | Selects random valid option |
-| **Linear Scale** | `role="radiogroup"` (1–5 / 1–10) | Matches numeric score from Gemini | Selects middle or random rating |
-| **Multiple Choice Grid** | Matrix rows with radios | Generates individual row answer for each sub-question | Selects random option per row |
-| **Checkbox Grid** | Matrix rows with checkboxes | Generates row-specific checkbox selection | Selects random checkbox per row |
-| **Short Answer** | `input[type="text"]`, etc. | Natural short answer grounded in image details & persona style | Indian persona generator |
-| **Paragraph** | `textarea` | Cohesive opinion / feedback matching persona & observed image traits | Synthetic feedback sentence |
-| **Date** | `input[type="date"]`, split inputs | Valid ISO date string formatted for form | Valid random date (1980–2025) |
-| **Time** | `input[type="time"]`, split inputs | Valid HH:MM time string | Valid random time |
-
-### ⚠️ Question Types AI Mode Cannot Handle
-- **File Upload (`input[type="file"]`)**:
-  - Browser extensions cannot interact with native operating system file picker dialogs without user interaction due to Chromium security sandboxing.
-  - File upload questions are safely **skipped and logged in the console**.
+5. Observe that FormPilot communicates with your chosen provider, inspects the images on screen, populates all fields, and advances through the form!
 
 ---
 
 ## 🛡️ Security & Privacy Architecture
 
-- **No Remote Code Execution**: All extension code is packaged locally (Manifest V3).
-- **Strict Host Permissions**: Host permissions are limited solely to `https://docs.google.com/*`, `https://generativelanguage.googleapis.com/*`, `https://*.googleusercontent.com/*`, and `https://*.googleapis.com/*`.
-- **Zero Third-Party Telemetry**: No analytics, tracking pixels, or external dependencies.
-- **Local Key Storage**: API keys are saved exclusively in your browser's encrypted `chrome.storage.local` and never transmitted anywhere except Google's official Gemini endpoint.
+- **100% Client-Side**: All API keys are saved exclusively in your browser's private encrypted `chrome.storage.local`.
+- **Zero Third-Party Telemetry**: No tracking pixels, analytics, or external proxies. Requests travel directly from your browser to your chosen AI provider.

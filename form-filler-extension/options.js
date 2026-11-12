@@ -1,19 +1,120 @@
 // Options page script for FormPilot
-// Handles Gemini API key, dynamic model discovery, temperature, and configuration with zero credential logging.
+// Supports Universal AI Providers: Google Gemini, OpenAI, Anthropic Claude, OpenRouter, Groq, and Custom OpenAI-compatible endpoints.
+
+const PROVIDER_PRESETS = {
+  gemini: {
+    name: 'Google Gemini',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    keyPlaceholder: 'AIzaSy...',
+    keyLinkText: 'Google AI Studio',
+    keyLinkUrl: 'https://aistudio.google.com/app/apikey',
+    defaultModel: 'gemini-2.5-flash',
+    models: [
+      { id: 'gemini-2.5-flash', name: 'Gemini 2.5 Flash (Fast, Recommended)' },
+      { id: 'gemini-2.5-pro', name: 'Gemini 2.5 Pro (Deep Reasoning)' },
+      { id: 'gemini-2.0-flash', name: 'Gemini 2.0 Flash' },
+      { id: 'gemini-1.5-flash', name: 'Gemini 1.5 Flash' },
+      { id: 'gemini-1.5-pro', name: 'Gemini 1.5 Pro' }
+    ]
+  },
+  openai: {
+    name: 'OpenAI (ChatGPT)',
+    baseUrl: 'https://api.openai.com/v1',
+    keyPlaceholder: 'sk-proj-...',
+    keyLinkText: 'OpenAI API Keys',
+    keyLinkUrl: 'https://platform.openai.com/api-keys',
+    defaultModel: 'gpt-4o-mini',
+    models: [
+      { id: 'gpt-4o-mini', name: 'GPT-4o Mini (Fast & Cost-Efficient Vision)' },
+      { id: 'gpt-4o', name: 'GPT-4o (Flagship Omni Vision)' },
+      { id: 'gpt-4-turbo', name: 'GPT-4 Turbo with Vision' },
+      { id: 'o1', name: 'o1 (Reasoning)' },
+      { id: 'o3-mini', name: 'o3-mini' }
+    ]
+  },
+  anthropic: {
+    name: 'Anthropic Claude',
+    baseUrl: 'https://api.anthropic.com/v1',
+    keyPlaceholder: 'sk-ant-...',
+    keyLinkText: 'Anthropic Console',
+    keyLinkUrl: 'https://console.anthropic.com/settings/keys',
+    defaultModel: 'claude-3-5-sonnet-20241022',
+    models: [
+      { id: 'claude-3-5-sonnet-20241022', name: 'Claude 3.5 Sonnet (State-of-the-Art Vision)' },
+      { id: 'claude-3-5-haiku-20241022', name: 'Claude 3.5 Haiku (Fast & Lightweight)' },
+      { id: 'claude-3-opus-20240229', name: 'Claude 3 Opus' }
+    ]
+  },
+  openrouter: {
+    name: 'OpenRouter',
+    baseUrl: 'https://openrouter.ai/api/v1',
+    keyPlaceholder: 'sk-or-v1-...',
+    keyLinkText: 'OpenRouter Keys',
+    keyLinkUrl: 'https://openrouter.ai/keys',
+    defaultModel: 'google/gemini-2.5-flash',
+    models: [
+      { id: 'google/gemini-2.5-flash', name: 'Google Gemini 2.5 Flash' },
+      { id: 'anthropic/claude-3.5-sonnet', name: 'Anthropic Claude 3.5 Sonnet' },
+      { id: 'openai/gpt-4o', name: 'OpenAI GPT-4o' },
+      { id: 'openai/gpt-4o-mini', name: 'OpenAI GPT-4o Mini' },
+      { id: 'meta-llama/llama-3.2-11b-vision-instruct', name: 'Llama 3.2 11B Vision' },
+      { id: 'deepseek/deepseek-chat', name: 'DeepSeek Chat (V3)' }
+    ]
+  },
+  groq: {
+    name: 'Groq',
+    baseUrl: 'https://api.groq.com/openai/v1',
+    keyPlaceholder: 'gsk_...',
+    keyLinkText: 'Groq Console',
+    keyLinkUrl: 'https://console.groq.com/keys',
+    defaultModel: 'llama-3.2-11b-vision-preview',
+    models: [
+      { id: 'llama-3.2-11b-vision-preview', name: 'Llama 3.2 11B Vision (Ultra-Fast)' },
+      { id: 'llama-3.2-90b-vision-preview', name: 'Llama 3.2 90B Vision' },
+      { id: 'llama-3.3-70b-versatile', name: 'Llama 3.3 70B Versatile' }
+    ]
+  },
+  custom: {
+    name: 'Custom / OpenAI-Compatible',
+    baseUrl: 'https://api.deepseek.com/v1',
+    keyPlaceholder: 'Enter custom API key / token (or none for Ollama)',
+    keyLinkText: 'Custom Endpoint Documentation',
+    keyLinkUrl: 'https://platform.openai.com/docs/api-reference',
+    defaultModel: 'deepseek-chat',
+    models: [
+      { id: 'deepseek-chat', name: 'DeepSeek Chat' },
+      { id: 'llama3.2-vision', name: 'Llama 3.2 Vision (Ollama / Local)' },
+      { id: 'llava', name: 'LLaVA (Local Vision)' }
+    ]
+  }
+};
 
 document.addEventListener('DOMContentLoaded', async () => {
+  const providerSelect = document.getElementById('providerSelect');
+  const baseUrlGroup = document.getElementById('baseUrlGroup');
+  const baseUrlInput = document.getElementById('baseUrlInput');
+  const apiKeyLabel = document.getElementById('apiKeyLabel');
   const apiKeyInput = document.getElementById('apiKeyInput');
+  const apiKeyHelpText = document.getElementById('apiKeyHelpText');
+  const apiKeyLink = document.getElementById('apiKeyLink');
+  const toggleKeyVisibilityBtn = document.getElementById('toggleKeyVisibility');
   const modelSelect = document.getElementById('modelSelect');
+  const customModelInput = document.getElementById('customModelInput');
   const refreshModelsBtn = document.getElementById('refreshModelsBtn');
   const modelWarningBanner = document.getElementById('modelWarningBanner');
   const temperatureInput = document.getElementById('temperatureInput');
   const temperatureValue = document.getElementById('temperatureValue');
-  const toggleKeyVisibilityBtn = document.getElementById('toggleKeyVisibility');
   const saveBtn = document.getElementById('saveBtn');
   const testKeyBtn = document.getElementById('testKeyBtn');
   const statusBanner = document.getElementById('statusBanner');
 
-  let savedModelName = 'gemini-2.5-flash';
+  let currentSavedState = {
+    aiProvider: 'gemini',
+    apiKey: '',
+    baseUrl: 'https://generativelanguage.googleapis.com',
+    modelName: 'gemini-2.5-flash',
+    temperature: 1.0
+  };
 
   // Temperature slider listener
   if (temperatureInput && temperatureValue) {
@@ -22,48 +123,72 @@ document.addEventListener('DOMContentLoaded', async () => {
     });
   }
 
-  // Render model list into dropdown
-  function populateModelDropdown(models, targetModel) {
-    if (!models || !Array.isArray(models) || models.length === 0) return false;
+  // Update UI fields when provider changes
+  function onProviderChanged(newProvider, preserveCustomModel = false) {
+    const preset = PROVIDER_PRESETS[newProvider] || PROVIDER_PRESETS.gemini;
 
+    // Show/hide base URL field
+    if (newProvider === 'custom') {
+      baseUrlGroup.style.display = 'block';
+    } else {
+      baseUrlGroup.style.display = 'none';
+    }
+    baseUrlInput.value = preset.baseUrl;
+
+    // Update API Key labels & link
+    apiKeyLabel.innerHTML = `${preset.name} API Key <span class="required">*</span>`;
+    apiKeyInput.placeholder = preset.keyPlaceholder;
+    apiKeyLink.href = preset.keyLinkUrl;
+    apiKeyLink.textContent = preset.keyLinkText;
+
+    // Populate model dropdown with presets
     modelSelect.innerHTML = '';
-    let found = false;
-
-    for (const m of models) {
+    for (const m of preset.models) {
       const opt = document.createElement('option');
       opt.value = m.id;
-      opt.textContent = `${m.displayName || m.id} (${m.id})`;
-      if (m.id === targetModel) {
-        opt.selected = true;
-        found = true;
-      }
+      opt.textContent = `${m.name} (${m.id})`;
       modelSelect.appendChild(opt);
     }
 
-    if (!found && models.length > 0) {
-      const fallbackModel = models[0].id;
-      modelSelect.value = fallbackModel;
-      modelWarningBanner.textContent = `⚠️ Saved model "${targetModel}" was not found in the list. Falling back to "${fallbackModel}".`;
-      modelWarningBanner.style.display = 'block';
-      return false;
+    if (!preserveCustomModel || !customModelInput.value.trim()) {
+      customModelInput.value = preset.defaultModel;
+      modelSelect.value = preset.defaultModel;
     } else {
-      modelWarningBanner.style.display = 'none';
-      return true;
+      const target = customModelInput.value.trim();
+      const match = Array.from(modelSelect.options).find(o => o.value === target);
+      if (match) {
+        modelSelect.value = target;
+      }
     }
   }
 
-  // Fetch models from Gemini API via background service worker
-  async function refreshModelsList(keyToUse, isUserAction = false) {
-    let key = keyToUse || apiKeyInput.value.trim();
-    if (!key) {
-      const stored = await chrome.storage.local.get(['apiKey']);
-      if (stored.apiKey) {
-        key = stored.apiKey;
-        apiKeyInput.value = key;
-      }
-    }
+  // When model dropdown is changed, update custom model text input
+  modelSelect.addEventListener('change', () => {
+    customModelInput.value = modelSelect.value;
+    modelWarningBanner.style.display = 'none';
+  });
 
-    if (!key) {
+  // When user types in custom model input, try matching dropdown
+  customModelInput.addEventListener('input', () => {
+    const val = customModelInput.value.trim();
+    const match = Array.from(modelSelect.options).find(o => o.value === val);
+    if (match) {
+      modelSelect.value = val;
+    }
+  });
+
+  // Switch Provider Event
+  providerSelect.addEventListener('change', () => {
+    onProviderChanged(providerSelect.value);
+  });
+
+  // Refresh Models List
+  async function refreshModelsList(isUserAction = false) {
+    const provider = providerSelect.value;
+    const key = apiKeyInput.value.trim();
+    const baseUrl = baseUrlInput.value.trim();
+
+    if (!key && provider !== 'custom') {
       if (isUserAction) {
         showStatus('Please enter an API key first before refreshing models.', 'error');
         apiKeyInput.focus();
@@ -76,34 +201,51 @@ document.addEventListener('DOMContentLoaded', async () => {
     refreshModelsBtn.innerHTML = '<span>⏳ Loading...</span>';
 
     try {
-      const currentTarget = modelSelect.value || savedModelName;
+      const currentTarget = customModelInput.value.trim() || modelSelect.value;
       const response = await chrome.runtime.sendMessage({
         action: 'FETCH_MODELS',
-        apiKey: key
+        provider: provider,
+        apiKey: key,
+        baseUrl: baseUrl
       });
 
       if (response && response.success && Array.isArray(response.models) && response.models.length > 0) {
-        await chrome.storage.local.set({ cachedModels: response.models });
-        const isMatched = populateModelDropdown(response.models, currentTarget);
-        if (isMatched) {
-          savedModelName = modelSelect.value;
+        modelSelect.innerHTML = '';
+        let matched = false;
+
+        for (const m of response.models) {
+          const opt = document.createElement('option');
+          opt.value = m.id;
+          opt.textContent = `${m.displayName || m.id} (${m.id})`;
+          if (m.id === currentTarget) {
+            opt.selected = true;
+            matched = true;
+          }
+          modelSelect.appendChild(opt);
+        }
+
+        if (!matched && response.models.length > 0) {
+          const fallbackModel = response.models[0].id;
+          customModelInput.value = fallbackModel;
+          modelSelect.value = fallbackModel;
+          modelWarningBanner.textContent = `⚠️ Model "${currentTarget}" was not in the provider catalog. Defaulting to "${fallbackModel}".`;
+          modelWarningBanner.style.display = 'block';
         } else {
-          savedModelName = response.models[0].id;
-          await chrome.storage.local.set({ modelName: savedModelName });
+          modelWarningBanner.style.display = 'none';
         }
 
         if (isUserAction) {
-          showStatus(`✓ Successfully refreshed ${response.models.length} models from Gemini API.`, 'success');
+          showStatus(`✓ Successfully fetched ${response.models.length} models for ${provider.toUpperCase()}.`, 'success');
         }
       } else {
         const errMsg = response && response.error ? response.error : 'Could not retrieve models list.';
         if (isUserAction) {
-          showStatus(`Failed to refresh models: ${errMsg}`, 'error');
+          showStatus(`Notice: ${errMsg} (You can still type any model name manually).`, 'info');
         }
       }
     } catch (err) {
       if (isUserAction) {
-        showStatus(`Error fetching models: ${err.message}`, 'error');
+        showStatus(`Notice: ${err.message}`, 'info');
       }
     } finally {
       refreshModelsBtn.disabled = false;
@@ -111,18 +253,38 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   }
 
-  // Load existing credentials & preferences
+  refreshModelsBtn.addEventListener('click', async () => {
+    await refreshModelsList(true);
+  });
+
+  // Load Saved Settings from chrome.storage.local
   try {
     const data = await chrome.storage.local.get([
-      'apiKey', 'modelName', 'temperature', 'cachedModels'
+      'aiProvider', 'apiKey', 'baseUrl', 'modelName', 'temperature'
     ]);
+
+    const activeProvider = data.aiProvider || 'gemini';
+    providerSelect.value = activeProvider;
+
+    const preset = PROVIDER_PRESETS[activeProvider] || PROVIDER_PRESETS.gemini;
+    onProviderChanged(activeProvider, true);
 
     if (data.apiKey) {
       apiKeyInput.value = data.apiKey;
     }
 
+    if (data.baseUrl) {
+      baseUrlInput.value = data.baseUrl;
+    } else {
+      baseUrlInput.value = preset.baseUrl;
+    }
+
     if (data.modelName) {
-      savedModelName = data.modelName;
+      customModelInput.value = data.modelName;
+      const match = Array.from(modelSelect.options).find(o => o.value === data.modelName);
+      if (match) {
+        modelSelect.value = data.modelName;
+      }
     }
 
     if (data.temperature !== undefined) {
@@ -131,16 +293,13 @@ document.addEventListener('DOMContentLoaded', async () => {
       temperatureValue.textContent = tempNum.toFixed(2).replace(/\.00$/, '.0');
     }
 
-    // Populate from cache if available, then refresh in background if key exists
-    if (data.cachedModels && Array.isArray(data.cachedModels) && data.cachedModels.length > 0) {
-      populateModelDropdown(data.cachedModels, savedModelName);
-    } else {
-      modelSelect.value = savedModelName;
-    }
-
-    if (data.apiKey) {
-      refreshModelsList(data.apiKey, false);
-    }
+    currentSavedState = {
+      aiProvider: activeProvider,
+      apiKey: data.apiKey || '',
+      baseUrl: baseUrlInput.value,
+      modelName: customModelInput.value || preset.defaultModel,
+      temperature: parseFloat(temperatureInput.value) || 1.0
+    };
   } catch (err) {
     showStatus('Error loading saved configuration.', 'error');
   }
@@ -158,31 +317,24 @@ document.addEventListener('DOMContentLoaded', async () => {
     }
   });
 
-  // Manual Refresh Models Button
-  refreshModelsBtn.addEventListener('click', async () => {
-    await refreshModelsList(apiKeyInput.value.trim(), true);
-  });
-
   // Save Settings
   saveBtn.addEventListener('click', async () => {
+    const provider = providerSelect.value;
     const key = apiKeyInput.value.trim();
-    const model = modelSelect.value || 'gemini-2.5-flash';
+    const model = customModelInput.value.trim() || modelSelect.value || PROVIDER_PRESETS[provider]?.defaultModel || 'gemini-2.5-flash';
+    const baseUrl = baseUrlInput.value.trim() || PROVIDER_PRESETS[provider]?.baseUrl;
     const temp = parseFloat(temperatureInput.value) || 1.0;
 
     saveBtn.disabled = true;
     try {
       await chrome.storage.local.set({
+        aiProvider: provider,
         apiKey: key,
+        baseUrl: baseUrl,
         modelName: model,
         temperature: temp
       });
-      savedModelName = model;
-      showStatus('✓ Settings saved successfully.', 'success');
-
-      // Refresh model list with new key if models are empty or key changed
-      if (key) {
-        refreshModelsList(key, false);
-      }
+      showStatus(`✓ Settings saved for ${PROVIDER_PRESETS[provider]?.name || provider}.`, 'success');
     } catch (err) {
       showStatus('Failed to save settings: ' + err.message, 'error');
     } finally {
@@ -192,11 +344,13 @@ document.addEventListener('DOMContentLoaded', async () => {
 
   // Test Key Connection
   testKeyBtn.addEventListener('click', async () => {
+    const provider = providerSelect.value;
     const key = apiKeyInput.value.trim();
-    const model = modelSelect.value || 'gemini-2.5-flash';
+    const model = customModelInput.value.trim() || modelSelect.value || PROVIDER_PRESETS[provider]?.defaultModel || 'gemini-2.5-flash';
+    const baseUrl = baseUrlInput.value.trim() || PROVIDER_PRESETS[provider]?.baseUrl;
     const temp = parseFloat(temperatureInput.value) || 1.0;
 
-    if (!key) {
+    if (!key && provider !== 'custom') {
       showStatus('Please enter an API key before testing.', 'error');
       apiKeyInput.focus();
       return;
@@ -204,28 +358,30 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     testKeyBtn.disabled = true;
     saveBtn.disabled = true;
-    showStatus('Testing connection to Gemini API...', 'info');
+    showStatus(`Testing connection to ${PROVIDER_PRESETS[provider]?.name || provider} (${model})...`, 'info');
 
     try {
       await chrome.storage.local.set({
+        aiProvider: provider,
         apiKey: key,
+        baseUrl: baseUrl,
         modelName: model,
         temperature: temp
       });
 
       const response = await chrome.runtime.sendMessage({
         action: 'TEST_KEY',
+        provider: provider,
         apiKey: key,
-        modelName: model
+        modelName: model,
+        baseUrl: baseUrl
       });
 
       if (response && response.success) {
-        showStatus(`✓ Success! Connected to Gemini model "${model}". Key is valid and working.`, 'success');
-        // Automatically refresh models list after valid key test
-        refreshModelsList(key, false);
+        showStatus(`✓ Connected to ${PROVIDER_PRESETS[provider]?.name || provider} model "${model}" successfully!`, 'success');
       } else {
-        const errorMsg = response && response.error ? response.error : 'Connection failed. Please verify your API key.';
-        showStatus(`✗ Error: ${errorMsg}`, 'error');
+        const errorMsg = response && response.error ? response.error : 'Connection failed. Please verify credentials.';
+        showStatus(`✗ Connection failed: ${errorMsg}`, 'error');
       }
     } catch (err) {
       showStatus(`✗ Test failed: ${err.message}`, 'error');

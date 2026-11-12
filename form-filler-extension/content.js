@@ -1477,7 +1477,7 @@
     try {
       const state = await chrome.storage.local.get([
         'fixedAnswers', 'done', 'total', 'useRandomFallback',
-        'useAiAnswers', 'personaHint', 'apiKey'
+        'useAiAnswers', 'personaHint', 'apiKey', 'aiProvider', 'modelName'
       ]);
       const fixedAnswers = state.fixedAnswers || [];
       const done = state.done || 0;
@@ -1485,20 +1485,22 @@
       const useRandomFallback = state.useRandomFallback !== false;
       const useAiAnswers = Boolean(state.useAiAnswers);
       const personaHint = state.personaHint || '';
+      const aiProvider = (state.aiProvider || 'gemini').toUpperCase();
+      const modelName = state.modelName || 'default';
 
-      // If AI mode is on, verify API key
-      if (useAiAnswers) {
+      // If AI mode is on, verify API key (unless custom local endpoint)
+      if (useAiAnswers && state.aiProvider !== 'custom') {
         if (!state.apiKey || !state.apiKey.trim()) {
-          console.error('[FormPilot] Gemini API key is missing. Halting.');
+          console.error(`[FormPilot] ${aiProvider} API key is missing. Halting.`);
           await chrome.storage.local.set({
             running: false,
-            statusMessage: 'Stopped: Gemini API key missing. Open settings to configure.'
+            statusMessage: `Stopped: ${aiProvider} API key missing. Open settings to configure.`
           });
           return;
         }
       }
 
-      console.log(`%c[FormPilot] === Starting Form Submission (${done + 1} / ${total}) [Mode: ${useAiAnswers ? 'Gemini AI' : 'Random'}] ===`, 'color: #673ab7; font-weight: bold; font-size: 14px;');
+      console.log(`%c[FormPilot] === Starting Form Submission (${done + 1} / ${total}) [Mode: ${useAiAnswers ? `${aiProvider} (${modelName})` : 'Random'}] ===`, 'color: #673ab7; font-weight: bold; font-size: 14px;');
 
       const persona = createPersona();
       let pageStep = 1;
@@ -1532,7 +1534,7 @@
             const sectionImages = collectStimulusImages();
 
             await chrome.storage.local.set({
-              currentPageStatus: `Generating AI vision answers for ${sectionInfo.title} via Gemini...`
+              currentPageStatus: `Generating AI vision answers for ${sectionInfo.title} via ${aiProvider}...`
             });
 
             try {
@@ -1550,22 +1552,22 @@
 
               if (aiRes && aiRes.success) {
                 aiAnswers = aiRes.answers || {};
-                console.log(`[FormPilot] Received Gemini AI vision answers for ${pageLabel} (${sectionInfo.title}):`, aiAnswers);
+                console.log(`[FormPilot] Received ${aiProvider} vision answers for ${pageLabel} (${sectionInfo.title}):`, aiAnswers);
               } else {
                 const errMsg = aiRes ? (aiRes.message || aiRes.error) : 'Unknown AI error';
-                console.warn(`[FormPilot] Gemini AI generation error: ${errMsg}`);
+                console.warn(`[FormPilot] ${aiProvider} AI generation error: ${errMsg}`);
 
-                if (/invalid api key/i.test(errMsg)) {
+                if (/invalid.*api key|unauthorized/i.test(errMsg)) {
                   await chrome.storage.local.set({
                     running: false,
-                    statusMessage: 'Stopped: Invalid Gemini API key. Check settings.'
+                    statusMessage: `Stopped: Invalid ${aiProvider} API key. Check settings.`
                   });
                   return;
                 }
-                if (/rate limit/i.test(errMsg)) {
+                if (/rate limit|429/i.test(errMsg)) {
                   await chrome.storage.local.set({
                     running: false,
-                    statusMessage: 'Stopped: Gemini API rate limit exceeded.'
+                    statusMessage: `Stopped: ${aiProvider} rate limit exceeded.`
                   });
                   return;
                 }

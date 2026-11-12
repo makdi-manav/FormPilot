@@ -20,6 +20,8 @@ document.addEventListener('DOMContentLoaded', async () => {
   const errorBanner = document.getElementById('errorBanner');
   const useAiToggle = document.getElementById('useAiToggle');
   const aiDetails = document.getElementById('aiDetails');
+  const aiProviderBadge = document.getElementById('aiProviderBadge');
+  const aiToggleSub = document.getElementById('aiToggleSub');
   const personaHintInput = document.getElementById('personaHintInput');
   const apiKeyWarning = document.getElementById('apiKeyWarning');
   const missingKeySettingsLink = document.getElementById('missingKeySettingsLink');
@@ -100,6 +102,8 @@ document.addEventListener('DOMContentLoaded', async () => {
       'useRandomFallback',
       'useAiAnswers',
       'personaHint',
+      'aiProvider',
+      'modelName',
       'apiKey'
     ]);
 
@@ -113,7 +117,12 @@ document.addEventListener('DOMContentLoaded', async () => {
     aiDetails.style.display = isAi ? 'block' : 'none';
     personaHintInput.value = data.personaHint || '';
 
-    if (isAi && (!data.apiKey || !data.apiKey.trim())) {
+    const providerName = (data.aiProvider || 'gemini').toUpperCase();
+    const model = data.modelName || 'default';
+    if (aiProviderBadge) aiProviderBadge.textContent = providerName;
+    if (aiToggleSub) aiToggleSub.textContent = `Answers via ${providerName} (${model})`;
+
+    if (isAi && (!data.apiKey || !data.apiKey.trim()) && data.aiProvider !== 'custom') {
       apiKeyWarning.style.display = 'block';
     } else {
       apiKeyWarning.style.display = 'none';
@@ -406,9 +415,10 @@ document.addEventListener('DOMContentLoaded', async () => {
 
     const isAi = useAiToggle.checked;
     if (isAi) {
-      const data = await chrome.storage.local.get(['apiKey']);
-      if (!data.apiKey || !data.apiKey.trim()) {
-        errorBanner.innerHTML = '⚠️ Gemini API key is missing. Please <a href="#" id="errLink" style="color: #c62828; font-weight: bold; text-decoration: underline;">Open Settings</a> and enter your API key to use AI mode.';
+      const data = await chrome.storage.local.get(['apiKey', 'aiProvider']);
+      if ((!data.apiKey || !data.apiKey.trim()) && data.aiProvider !== 'custom') {
+        const prov = (data.aiProvider || 'AI').toUpperCase();
+        errorBanner.innerHTML = `⚠️ ${prov} API key is missing. Please <a href="#" id="errLink" style="color: #c62828; font-weight: bold; text-decoration: underline;">Open Settings</a> and enter your API key to use AI mode.`;
         errorBanner.style.display = 'block';
         document.getElementById('errLink')?.addEventListener('click', (ev) => {
           ev.preventDefault();

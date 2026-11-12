@@ -1,6 +1,6 @@
-// Background service worker for FormPilot (Google Forms Auto-Filler)
-// Handles Gemini API calls, vision multimodal processing, rate limiting (HTTP 429),
-// dynamic model listing, respondent personas, writing styles, and duplicate deduplication.
+// Background service worker for FormPilot (Universal AI Testing Engine)
+// Supports any AI model: Google Gemini, OpenAI (ChatGPT), Anthropic Claude,
+// OpenRouter, Groq, and Custom OpenAI-compatible endpoints (DeepSeek, Local Ollama, etc.).
 
 const INDIAN_CITIES = [
   'Mumbai', 'Delhi', 'Bengaluru', 'Hyderabad', 'Chennai', 'Kolkata', 'Pune', 'Ahmedabad',
@@ -58,7 +58,7 @@ function pickWritingStyle() {
 // Active respondent profiles and memories cached per submission index
 let currentSubmissionIndex = -1;
 let currentRespondentProfile = null;
-let currentRespondentMemories = []; // Array of strings: "[Section S01]: shape: Organic (2), decoration: Floral"
+let currentRespondentMemories = []; // Stores section summaries for the current respondent
 let runSeenTextAnswers = new Set(); // Stores text answers seen in this batch run to avoid duplicates
 
 function getRespondentProfile(submissionIndex, personaHint) {
@@ -93,76 +93,7 @@ function getRespondentProfile(submissionIndex, personaHint) {
   return currentRespondentProfile;
 }
 
-// Fetch dynamic models list from Gemini API
-async function fetchGeminiModels(apiKey) {
-  let allModels = [];
-  let pageToken = '';
-
-  do {
-    let url = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
-    if (pageToken) {
-      url += `&pageToken=${encodeURIComponent(pageToken)}`;
-    }
-
-    const res = await fetch(url, {
-      method: 'GET',
-      headers: {
-        'x-goog-api-key': apiKey
-      }
-    });
-
-    if (res.status === 401 || res.status === 403) {
-      throw new Error('Invalid API key');
-    }
-    if (!res.ok) {
-      throw new Error(`Failed to fetch models list (HTTP ${res.status})`);
-    }
-
-    const data = await res.json();
-    if (data.models && Array.isArray(data.models)) {
-      allModels.push(...data.models);
-    }
-    pageToken = data.nextPageToken || '';
-  } while (pageToken);
-
-  // Keep only models that support generateContent
-  const valid = allModels.filter(m =>
-    Array.isArray(m.supportedGenerationMethods) &&
-    m.supportedGenerationMethods.includes('generateContent')
-  );
-
-  // Strip 'models/' prefix
-  const formatted = valid.map(m => {
-    const id = m.name.replace(/^models\//, '');
-    return {
-      id: id,
-      displayName: m.displayName || id,
-      description: m.description || ''
-    };
-  });
-
-  // Sort so newest "pro" and "flash" models are at the top
-  formatted.sort((a, b) => {
-    function score(m) {
-      let s = 0;
-      const id = m.id.toLowerCase();
-      if (id.includes('2.5')) s += 1000;
-      else if (id.includes('2.0')) s += 800;
-      else if (id.includes('1.5')) s += 600;
-      else if (id.includes('1.0')) s += 400;
-
-      if (id.includes('flash')) s += 120;
-      if (id.includes('pro')) s += 110;
-      if (id.includes('preview') || id.includes('exp')) s -= 25;
-      return s;
-    }
-    return score(b) - score(a);
-  });
-
-  return formatted;
-}
-
-// Fetch image from URL and convert to Base64 (max ~4MB)
+// Image Fetcher & Base64 Converter
 async function fetchImageAsBase64(url) {
   if (!url || typeof url !== 'string') return null;
 
@@ -200,87 +131,279 @@ async function fetchImageAsBase64(url) {
   }
 }
 
-// Low-level Gemini API generateContent call with multimodal parts & 429 retry
-async function askGemini(apiKey, modelName, partsArray, temperature = 1.0) {
-  const model = modelName || 'gemini-2.5-flash';
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+// Fetch dynamic model list based on provider
+async function fetchProviderModels(provider, apiKey, baseUrl) {
+  // 1. Google Gemini Models
+  if (provider === 'gemini') {
+    let allModels = [];
+    let pageToken = '';
 
-  const payload = {
-    contents: [
-      {
-        role: 'user',
-        parts: partsArray
+    do {
+      let url = 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=100';
+      if (pageToken) url += `&pageToken=${encodeURIComponent(pageToken)}`;
+
+      const res = await fetch(url, {
+        method: 'GET',
+        headers: { 'x-goog-api-key': apiKey }
+      });
+
+      if (res.status === 401 || res.status === 403) throw new Error('Invalid Gemini API key');
+      if (!res.ok) throw new Error(`Gemini models fetch failed (HTTP ${res.status})`);
+
+      const data = await res.json();
+      if (data.models && Array.isArray(data.models)) {
+        allModels.push(...data.models);
       }
-    ],
-    generationConfig: {
-      temperature: Math.max(0.7, Math.min(1.2, Number(temperature) || 1.0)),
-      responseMimeType: 'application/json'
-    }
-  };
+      pageToken = data.nextPageToken || '';
+    } while (pageToken);
 
+    const valid = allModels.filter(m =>
+      Array.isArray(m.supportedGenerationMethods) &&
+      m.supportedGenerationMethods.includes('generateContent')
+    );
+
+    const formatted = valid.map(m => {
+      const id = m.name.replace(/^models\//, '');
+      return { id: id, displayName: m.displayName || id };
+    });
+
+    formatted.sort((a, b) => {
+      function score(m) {
+        let s = 0;
+        const id = m.id.toLowerCase();
+        if (id.includes('2.5')) s += 1000;
+        else if (id.includes('2.0')) s += 800;
+        else if (id.includes('1.5')) s += 600;
+        if (id.includes('flash')) s += 120;
+        if (id.includes('pro')) s += 110;
+        return s;
+      }
+      return score(b) - score(a);
+    });
+
+    return formatted;
+  }
+
+  // 2. Anthropic Claude (Preset list - Anthropic has no public GET /models endpoint)
+  if (provider === 'anthropic') {
+    return [
+      { id: 'claude-3-5-sonnet-20241022', displayName: 'Claude 3.5 Sonnet (Latest)' },
+      { id: 'claude-3-5-haiku-20241022', displayName: 'Claude 3.5 Haiku' },
+      { id: 'claude-3-opus-20240229', displayName: 'Claude 3 Opus' }
+    ];
+  }
+
+  // 3. OpenAI, OpenRouter, Groq, or Custom OpenAI-Compatible
+  let endpoint = '';
+  if (provider === 'openai') {
+    endpoint = 'https://api.openai.com/v1/models';
+  } else if (provider === 'openrouter') {
+    endpoint = 'https://openrouter.ai/api/v1/models';
+  } else if (provider === 'groq') {
+    endpoint = 'https://api.groq.com/openai/v1/models';
+  } else {
+    const root = (baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+    endpoint = `${root}/models`;
+  }
+
+  const headers = {};
+  if (apiKey && apiKey !== 'none') {
+    headers['Authorization'] = `Bearer ${apiKey}`;
+  }
+
+  const res = await fetch(endpoint, { method: 'GET', headers });
+  if (res.status === 401 || res.status === 403) throw new Error(`Invalid API key for ${provider}`);
+  if (!res.ok) throw new Error(`Failed to fetch models from ${endpoint} (HTTP ${res.status})`);
+
+  const data = await res.json();
+  const rawList = data.data || data.models || (Array.isArray(data) ? data : []);
+  if (!Array.isArray(rawList)) return [];
+
+  const formatted = rawList.map(m => {
+    const id = m.id || m.name || String(m);
+    return { id: id, displayName: m.name || id };
+  });
+
+  return formatted;
+}
+
+// Universal AI Caller (Gemini, OpenAI, Anthropic, OpenRouter, Groq, Custom)
+async function askUniversalAi({ provider = 'gemini', apiKey, modelName, baseUrl, imageParts = [], promptText, temperature = 1.0 }) {
+  const temp = Math.max(0.0, Math.min(1.5, Number(temperature) || 1.0));
   const maxRetries = 3;
   let attempt = 0;
 
   while (attempt <= maxRetries) {
     attempt++;
     let response;
+
     try {
-      response = await fetch(url, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'x-goog-api-key': apiKey
-        },
-        body: JSON.stringify(payload)
-      });
+      // --- A. GOOGLE GEMINI ---
+      if (provider === 'gemini') {
+        const model = modelName || 'gemini-2.5-flash';
+        const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+
+        const parts = [
+          ...imageParts.map(img => ({
+            inline_data: {
+              mime_type: img.mimeType,
+              data: img.base64Data
+            }
+          })),
+          { text: promptText }
+        ];
+
+        const payload = {
+          contents: [{ role: 'user', parts: parts }],
+          generationConfig: {
+            temperature: temp,
+            responseMimeType: 'application/json'
+          }
+        };
+
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-goog-api-key': apiKey
+          },
+          body: JSON.stringify(payload)
+        });
+      }
+      // --- B. ANTHROPIC CLAUDE ---
+      else if (provider === 'anthropic') {
+        const url = 'https://api.anthropic.com/v1/messages';
+        const model = modelName || 'claude-3-5-sonnet-20241022';
+
+        const content = [
+          ...imageParts.map(img => ({
+            type: 'image',
+            source: {
+              type: 'base64',
+              media_type: img.mimeType,
+              data: img.base64Data
+            }
+          })),
+          { type: 'text', text: promptText }
+        ];
+
+        const payload = {
+          model: model,
+          max_tokens: 3000,
+          temperature: Math.min(1.0, temp),
+          messages: [{ role: 'user', content: content }]
+        };
+
+        response = await fetch(url, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'x-api-key': apiKey,
+            'anthropic-version': '2023-06-01',
+            'anthropic-dangerous-direct-browser-access': 'true'
+          },
+          body: JSON.stringify(payload)
+        });
+      }
+      // --- C. OPENAI, OPENROUTER, GROQ, OR CUSTOM OPENAI-COMPATIBLE ---
+      else {
+        let endpoint = '';
+        if (provider === 'openai') {
+          endpoint = 'https://api.openai.com/v1/chat/completions';
+        } else if (provider === 'openrouter') {
+          endpoint = 'https://openrouter.ai/api/v1/chat/completions';
+        } else if (provider === 'groq') {
+          endpoint = 'https://api.groq.com/openai/v1/chat/completions';
+        } else {
+          const root = (baseUrl || 'https://api.deepseek.com/v1').replace(/\/+$/, '');
+          endpoint = root.endsWith('/chat/completions') ? root : `${root}/chat/completions`;
+        }
+
+        const model = modelName || (provider === 'openai' ? 'gpt-4o-mini' : 'deepseek-chat');
+
+        const content = [
+          ...imageParts.map(img => ({
+            type: 'image_url',
+            image_url: { url: `data:${img.mimeType};base64,${img.base64Data}` }
+          })),
+          { type: 'text', text: promptText }
+        ];
+
+        const payload = {
+          model: model,
+          messages: [{ role: 'user', content: content }],
+          temperature: temp
+        };
+
+        // Enable json_object response format for supported providers
+        if (provider === 'openai' || provider === 'openrouter' || provider === 'groq') {
+          payload.response_format = { type: 'json_object' };
+        }
+
+        const headers = { 'Content-Type': 'application/json' };
+        if (apiKey && apiKey !== 'none') {
+          headers['Authorization'] = `Bearer ${apiKey}`;
+        }
+        if (provider === 'openrouter') {
+          headers['HTTP-Referer'] = 'https://github.com/makdi-manav/FormPilot';
+          headers['X-Title'] = 'FormPilot';
+        }
+
+        response = await fetch(endpoint, {
+          method: 'POST',
+          headers: headers,
+          body: JSON.stringify(payload)
+        });
+      }
     } catch (networkErr) {
-      throw new Error(`Network error connecting to Gemini API: ${networkErr.message}. Check your internet connection.`);
+      throw new Error(`Network error connecting to ${provider.toUpperCase()}: ${networkErr.message}. Check your internet connection or endpoint URL.`);
     }
 
     // Rate Limit Handling (HTTP 429)
     if (response.status === 429) {
       if (attempt <= maxRetries) {
-        console.warn(`[FormPilot Service Worker] Rate limit hit (HTTP 429). Waiting 20s before retry ${attempt}/${maxRetries}...`);
+        console.warn(`[FormPilot Service Worker] Rate limit hit (HTTP 429) on ${provider}. Waiting 20s before retry ${attempt}/${maxRetries}...`);
         await chrome.storage.local.set({
-          statusMessage: `Rate limit (429). Retrying in 20s (${attempt}/${maxRetries})...`
+          statusMessage: `Rate limit (429) on ${provider}. Retrying in 20s (${attempt}/${maxRetries})...`
         });
         await new Promise(r => setTimeout(r, 20000));
         continue;
       } else {
-        throw new Error('Gemini API rate limit exceeded (HTTP 429) after 3 retries. Please wait a moment or increase submission delay.');
+        throw new Error(`API rate limit exceeded (HTTP 429) on ${provider} after 3 retries. Please wait a moment or increase submission delay.`);
       }
     }
 
     // Authentication Errors (HTTP 401, 403)
     if (response.status === 401 || response.status === 403) {
-      throw new Error('Invalid API key');
+      throw new Error(`Invalid API key or unauthorized access for ${provider}. Please verify your key in Settings.`);
     }
 
     if (!response.ok) {
       let errText = '';
       try {
         const errJson = await response.json();
-        errText = errJson.error ? errJson.error.message : JSON.stringify(errJson);
+        errText = errJson.error ? (errJson.error.message || JSON.stringify(errJson.error)) : JSON.stringify(errJson);
       } catch (_) {
         errText = await response.text();
       }
-      throw new Error(`Gemini API Error (HTTP ${response.status}): ${errText}`);
+      throw new Error(`${provider.toUpperCase()} API Error (HTTP ${response.status}): ${errText}`);
     }
 
     const data = await response.json();
-    return data;
-  }
-}
 
-function extractCandidateText(apiResponse) {
-  if (!apiResponse || !apiResponse.candidates || !apiResponse.candidates.length) {
-    return '';
+    // Extract text output based on provider
+    if (provider === 'gemini') {
+      if (!data.candidates || !data.candidates[0]?.content?.parts?.[0]?.text) return '';
+      return data.candidates[0].content.parts[0].text;
+    } else if (provider === 'anthropic') {
+      if (!data.content || !data.content[0]?.text) return '';
+      return data.content[0].text;
+    } else {
+      // OpenAI / OpenRouter / Groq / Custom
+      if (!data.choices || !data.choices[0]?.message?.content) return '';
+      return data.choices[0].message.content;
+    }
   }
-  const candidate = apiResponse.candidates[0];
-  if (!candidate.content || !candidate.content.parts || !candidate.content.parts.length) {
-    return '';
-  }
-  return candidate.content.parts[0].text || '';
 }
 
 function parseJsonSafely(rawText) {
@@ -292,7 +415,14 @@ function parseJsonSafely(rawText) {
   try {
     return JSON.parse(cleaned);
   } catch (err) {
-    console.warn('[FormPilot Service Worker] Failed to parse Gemini JSON output:', err);
+    // Attempt relaxed regex parsing if wrapped in extra dialogue
+    const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+    if (jsonMatch) {
+      try {
+        return JSON.parse(jsonMatch[0]);
+      } catch (_) {}
+    }
+    console.warn('[FormPilot Service Worker] Failed to parse AI JSON output:', err);
     return {};
   }
 }
@@ -301,7 +431,7 @@ function parseJsonSafely(rawText) {
 chrome.runtime.onInstalled.addListener(async () => {
   const existing = await chrome.storage.local.get([
     'total', 'delay', 'fixedAnswers', 'running', 'done',
-    'modelName', 'useAiAnswers', 'personaHint', 'temperature'
+    'aiProvider', 'modelName', 'baseUrl', 'useAiAnswers', 'personaHint', 'temperature'
   ]);
   const defaults = {};
 
@@ -312,7 +442,9 @@ chrome.runtime.onInstalled.addListener(async () => {
   }
   if (existing.running === undefined) defaults.running = false;
   if (existing.done === undefined) defaults.done = 0;
+  if (existing.aiProvider === undefined) defaults.aiProvider = 'gemini';
   if (existing.modelName === undefined) defaults.modelName = 'gemini-2.5-flash';
+  if (existing.baseUrl === undefined) defaults.baseUrl = 'https://generativelanguage.googleapis.com';
   if (existing.temperature === undefined) defaults.temperature = 1.0;
   if (existing.useAiAnswers === undefined) defaults.useAiAnswers = false;
   if (existing.personaHint === undefined) defaults.personaHint = '';
@@ -321,22 +453,21 @@ chrome.runtime.onInstalled.addListener(async () => {
   if (Object.keys(defaults).length > 0) {
     await chrome.storage.local.set(defaults);
   }
-  console.log('[FormPilot Service Worker] Initialized with default settings.');
+  console.log('[FormPilot Service Worker] Initialized with universal AI settings.');
 });
 
 // Runtime Message Listener
 chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
-  // 1. Fetch Models Action
+  // 1. Fetch Dynamic Models
   if (request.action === 'FETCH_MODELS') {
     (async () => {
       try {
-        const state = await chrome.storage.local.get(['apiKey']);
+        const state = await chrome.storage.local.get(['aiProvider', 'apiKey', 'baseUrl']);
+        const provider = request.provider || state.aiProvider || 'gemini';
         const apiKey = (request.apiKey || state.apiKey || '').trim();
-        if (!apiKey) {
-          sendResponse({ success: false, error: 'API key is required. Please enter an API key.' });
-          return;
-        }
-        const models = await fetchGeminiModels(apiKey);
+        const baseUrl = (request.baseUrl || state.baseUrl || '').trim();
+
+        const models = await fetchProviderModels(provider, apiKey, baseUrl);
         sendResponse({ success: true, models: models });
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -345,18 +476,30 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     return true;
   }
 
-  // 2. Test API Key Connectivity
+  // 2. Test Connection & Key
   if (request.action === 'TEST_KEY') {
     (async () => {
       try {
-        const parts = [{ text: 'Respond with JSON: {"status": "ok"}' }];
-        const data = await askGemini(request.apiKey, request.modelName, parts, 1.0);
-        const text = extractCandidateText(data);
-        const parsed = parseJsonSafely(text);
+        const provider = request.provider || 'gemini';
+        const apiKey = (request.apiKey || '').trim();
+        const modelName = request.modelName || 'gemini-2.5-flash';
+        const baseUrl = request.baseUrl || '';
+
+        const textOutput = await askUniversalAi({
+          provider,
+          apiKey,
+          modelName,
+          baseUrl,
+          imageParts: [],
+          promptText: 'Respond with ONLY a JSON object: {"status": "ok"}',
+          temperature: 0.7
+        });
+
+        const parsed = parseJsonSafely(textOutput);
         if (parsed && (parsed.status === 'ok' || Object.keys(parsed).length > 0)) {
-          sendResponse({ success: true, model: request.modelName || 'gemini-2.5-flash' });
+          sendResponse({ success: true, model: modelName, provider });
         } else {
-          sendResponse({ success: true, model: request.modelName || 'gemini-2.5-flash' });
+          sendResponse({ success: true, model: modelName, provider });
         }
       } catch (err) {
         sendResponse({ success: false, error: err.message });
@@ -369,16 +512,18 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
   if (request.action === 'GET_AI_ANSWERS') {
     (async () => {
       try {
-        const state = await chrome.storage.local.get(['apiKey', 'modelName', 'temperature']);
+        const state = await chrome.storage.local.get(['aiProvider', 'apiKey', 'modelName', 'baseUrl', 'temperature']);
+        const provider = state.aiProvider || 'gemini';
         const apiKey = state.apiKey ? state.apiKey.trim() : '';
         const modelName = state.modelName ? state.modelName.trim() : 'gemini-2.5-flash';
+        const baseUrl = state.baseUrl || '';
         const temperature = state.temperature !== undefined ? parseFloat(state.temperature) : 1.0;
 
-        if (!apiKey) {
+        if (!apiKey && provider !== 'custom') {
           sendResponse({
             success: false,
             error: 'MISSING_API_KEY',
-            message: 'Gemini API key is not configured. Please open settings to configure your API key.'
+            message: `API key for ${provider.toUpperCase()} is not configured. Please open settings to configure your key.`
           });
           return;
         }
@@ -398,27 +543,22 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 
         const profile = getRespondentProfile(submissionIndex, personaHint);
 
-        console.log(`[FormPilot Service Worker] Processing Section "${sectionTitle}" for Response #${submissionIndex + 1}. Style: ${profile.style.name}. Images found: ${candidateImages.length}`);
+        console.log(`[FormPilot Service Worker] Processing Section "${sectionTitle}" [Provider: ${provider.toUpperCase()}, Model: ${modelName}] for Response #${submissionIndex + 1}. Style: ${profile.style.name}. Images: ${candidateImages.length}`);
 
         // Fetch candidate images in parallel
-        const imageParts = [];
+        const validImages = [];
         let failedImageCount = 0;
 
         for (const imgItem of candidateImages) {
           const imgData = await fetchImageAsBase64(imgItem.url);
           if (imgData) {
-            imageParts.push({
-              inline_data: {
-                mime_type: imgData.mimeType,
-                data: imgData.base64Data
-              }
-            });
+            validImages.push(imgData);
           } else {
             failedImageCount++;
           }
         }
 
-        if (candidateImages.length > 0 && imageParts.length === 0) {
+        if (candidateImages.length > 0 && validImages.length === 0) {
           const warnMsg = `Couldn't load image for section ${sectionTitle}`;
           console.warn(`[FormPilot Service Worker] ${warnMsg}`);
           await chrome.storage.local.set({ lastWarning: warnMsg });
@@ -439,7 +579,7 @@ ${currentRespondentMemories.length > 0 ? `PREVIOUS ANSWERS BY THIS RESPONDENT IN
 INSTRUCTIONS:
 1. Look carefully at any attached image(s) and mention specific things you actually see (shape, colour, material, text, size, price tag, setting, people).
 2. Respond strictly as this person would, in their assigned writing style: ${profile.style.name.toUpperCase()} (${profile.style.instruction}).
-3. Do NOT use marketing or corporate words like "sleek", "innovative", "cutting-edge", "seamless", "elevate", "state-of-the-art".
+3. Do NOT use marketing or corporate buzzwords like "sleek", "innovative", "cutting-edge", "seamless", "elevate", "state-of-the-art".
 4. Do NOT start answers the same way. Opinions can be mixed, indifferent, or critical—not always enthusiastic or positive.
 5. If a question asks for up to three words, give 1-3 words or phrases, not a complete sentence. Keep each answer within the length asked for.
 6. For choice questions return exactly one of the given options (verbatim).
@@ -457,11 +597,16 @@ REFERENCE EXAMPLES of answer styles for a different product (a desktop ceramic c
 QUESTIONS TO ANSWER:
 ${JSON.stringify(questions, null, 2)}`;
 
-        // Construct parts array: image parts placed BEFORE the text part
-        const partsArray = [...imageParts, { text: promptText }];
+        const rawText = await askUniversalAi({
+          provider,
+          apiKey,
+          modelName,
+          baseUrl,
+          imageParts: validImages,
+          promptText,
+          temperature
+        });
 
-        const data = await askGemini(apiKey, modelName, partsArray, temperature);
-        const rawText = extractCandidateText(data);
         let answers = parseJsonSafely(rawText);
 
         // Deduplication check: if an open-ended text answer was already used in this run, rewrite it once
@@ -484,9 +629,16 @@ ${JSON.stringify(questions, null, 2)}`;
           console.log(`[FormPilot Service Worker] Duplicate answer detected for "${duplicateFound.questionTitle}": "${duplicateFound.oldAnswer}". Requesting rewrite...`);
           try {
             const rewritePrompt = `The previous answer "${duplicateFound.oldAnswer}" for question "${duplicateFound.questionTitle}" was already used by another respondent. Rewrite it differently adhering to the persona and ${profile.style.name} style. Respond with JSON: {"${duplicateFound.questionId}": "new rewritten answer"}`;
-            const rewriteParts = [...imageParts, { text: rewritePrompt }];
-            const rewriteData = await askGemini(apiKey, modelName, rewriteParts, temperature);
-            const rewriteParsed = parseJsonSafely(extractCandidateText(rewriteData));
+            const rewriteRaw = await askUniversalAi({
+              provider,
+              apiKey,
+              modelName,
+              baseUrl,
+              imageParts: validImages,
+              promptText: rewritePrompt,
+              temperature
+            });
+            const rewriteParsed = parseJsonSafely(rewriteRaw);
             if (rewriteParsed && rewriteParsed[duplicateFound.questionId]) {
               answers[duplicateFound.questionId] = rewriteParsed[duplicateFound.questionId];
               console.log(`[FormPilot Service Worker] Rewritten to: "${answers[duplicateFound.questionId]}"`);
@@ -521,6 +673,8 @@ ${JSON.stringify(questions, null, 2)}`;
           success: true,
           answers: answers,
           sectionTitle: sectionTitle,
+          provider: provider,
+          model: modelName,
           personaSummary: profile.summary
         });
       } catch (err) {

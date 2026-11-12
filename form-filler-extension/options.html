@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>FormPilot Settings - Gemini API</title>
+  <title>FormPilot Settings - AI Provider & Models</title>
   <link rel="stylesheet" href="options.css">
 </head>
 <body>
@@ -13,58 +13,99 @@
         <img src="icons/icon48.png" alt="FormPilot" class="logo-icon">
         <div>
           <h1 class="title">FormPilot Settings</h1>
-          <p class="subtitle">Configure Google Gemini API for AI-powered form responses</p>
+          <p class="subtitle">Connect any AI model (Gemini, OpenAI, Claude, OpenRouter, Groq, Ollama)</p>
         </div>
       </div>
     </header>
 
     <main class="options-main">
-      <!-- API Configuration Card -->
+      <!-- AI Provider Configuration Card -->
       <section class="card">
-        <h2 class="card-title">Gemini API Credentials</h2>
+        <h2 class="card-title">AI Provider & Credentials</h2>
         <p class="card-description">
-          FormPilot uses the Google Gemini API to intelligently generate realistic, persona-driven answers for your Google Forms.
+          Choose any AI service provider. Enter your API key to power form answers with any modern vision and language model.
         </p>
 
+        <!-- Provider Selector -->
         <div class="form-group">
-          <label for="apiKeyInput" class="form-label">
-            Gemini API Key <span class="required">*</span>
+          <label for="providerSelect" class="form-label">
+            AI Service Provider <span class="required">*</span>
+          </label>
+          <select id="providerSelect" class="form-input form-select">
+            <option value="gemini">Google Gemini (Free tier available, 2.5 Flash / Pro)</option>
+            <option value="openai">OpenAI (GPT-4o, GPT-4o-mini, o1)</option>
+            <option value="anthropic">Anthropic Claude (Claude 3.5 Sonnet / Haiku)</option>
+            <option value="openrouter">OpenRouter (One key for 200+ models)</option>
+            <option value="groq">Groq (Ultra-fast Llama 3.2 Vision / Mixtral)</option>
+            <option value="custom">Custom (OpenAI-compatible / DeepSeek / Ollama / Local)</option>
+          </select>
+        </div>
+
+        <!-- Custom Base URL (Shown for Custom or can be toggled) -->
+        <div class="form-group" id="baseUrlGroup" style="display: none;">
+          <label for="baseUrlInput" class="form-label">
+            API Base URL <span class="required">*</span>
+          </label>
+          <input
+            type="text"
+            id="baseUrlInput"
+            class="form-input"
+            placeholder="https://api.deepseek.com/v1"
+            spellcheck="false"
+          >
+          <p class="form-help">
+            Endpoint root (e.g., <code>https://api.deepseek.com/v1</code>, <code>https://openrouter.ai/api/v1</code>, or <code>http://localhost:11434/v1</code>).
+          </p>
+        </div>
+
+        <!-- API Key Input -->
+        <div class="form-group">
+          <label for="apiKeyInput" class="form-label" id="apiKeyLabel">
+            API Key <span class="required">*</span>
           </label>
           <div class="input-password-wrapper">
             <input
               type="password"
               id="apiKeyInput"
               class="form-input"
-              placeholder="AIzaSy..."
+              placeholder="Enter your API key..."
               autocomplete="off"
               spellcheck="false"
             >
             <button type="button" id="toggleKeyVisibility" class="btn-toggle-eye" title="Show or hide API key">👁️</button>
           </div>
-          <p class="form-help">
-            Don't have a key? Get a free API key at
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer">Google AI Studio</a>.
+          <p class="form-help" id="apiKeyHelpText">
+            Get an API key at <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" id="apiKeyLink">Google AI Studio</a>.
           </p>
         </div>
 
+        <!-- Model Selector -->
         <div class="form-group">
           <label for="modelSelect" class="form-label">
-            Gemini Model
+            Model Selection
           </label>
           <div class="model-select-wrapper">
             <select id="modelSelect" class="form-input form-select">
-              <option value="gemini-2.5-flash">Gemini 2.5 Flash (gemini-2.5-flash)</option>
-              <option value="gemini-2.5-pro">Gemini 2.5 Pro (gemini-2.5-pro)</option>
-              <option value="gemini-2.0-flash">Gemini 2.0 Flash (gemini-2.0-flash)</option>
-              <option value="gemini-1.5-flash">Gemini 1.5 Flash (gemini-1.5-flash)</option>
-              <option value="gemini-1.5-pro">Gemini 1.5 Pro (gemini-1.5-pro)</option>
+              <!-- Populated dynamically based on provider -->
             </select>
-            <button type="button" id="refreshModelsBtn" class="btn btn-secondary btn-icon-only" title="Fetch latest models from Google Gemini API">
+            <button type="button" id="refreshModelsBtn" class="btn btn-secondary btn-icon-only" title="Fetch latest models from provider">
               <span id="refreshIcon">🔄</span> <span id="refreshBtnText">Refresh</span>
             </button>
           </div>
-          <p class="form-help model-note">
-            <em>Pro models give better answers but have stricter free-tier limits. Flash is faster.</em>
+
+          <!-- Custom / Manual Model Name Input -->
+          <div class="custom-model-wrapper" id="customModelWrapper" style="margin-top: 8px;">
+            <input
+              type="text"
+              id="customModelInput"
+              class="form-input form-input-sm"
+              placeholder="or type any exact model name (e.g. gpt-4o, claude-3-5-sonnet, deepseek-chat)"
+              spellcheck="false"
+            >
+          </div>
+
+          <p class="form-help model-note" id="modelHelpNote">
+            <em>Select a recommended vision-capable model, or type any specific model identifier above.</em>
           </p>
           <div id="modelWarningBanner" class="warning-banner" style="display: none;"></div>
         </div>
@@ -79,18 +120,19 @@
             type="range"
             id="temperatureInput"
             class="form-range"
-            min="0.7"
-            max="1.2"
+            min="0.0"
+            max="1.5"
             step="0.05"
             value="1.0"
           >
           <div class="range-labels">
+            <span>0.0 (Deterministic)</span>
             <span>0.7 (Focused)</span>
             <span>1.0 (Balanced)</span>
-            <span>1.2 (Creative)</span>
+            <span>1.5 (Creative)</span>
           </div>
           <p class="form-help">
-            Controls response variation and creativity. Default: <code>1.0</code> (0.7 to 1.2).
+            Controls response variation and creativity across questions. Default: <code>1.0</code>.
           </p>
         </div>
 
@@ -100,7 +142,7 @@
             <span>💾 Save Settings</span>
           </button>
           <button type="button" id="testKeyBtn" class="btn btn-secondary">
-            <span>⚡ Test Key</span>
+            <span>⚡ Test Connection</span>
           </button>
         </div>
 
@@ -108,23 +150,23 @@
         <div id="statusBanner" class="status-banner" style="display: none;"></div>
       </section>
 
-      <!-- Privacy & Security Notice -->
+      <!-- Privacy & Local Storage Notice -->
       <section class="card card-info">
-        <h3 class="info-title">🔒 Privacy & Google AI Studio Policy</h3>
+        <h3 class="info-title">🔒 Universal Security & Privacy Guarantee</h3>
         <p class="info-text">
-          <strong>Security:</strong> Your API key is stored locally in your browser's private <code>chrome.storage.local</code>. It is never logged, never transmitted to external servers, and never shared.
+          <strong>100% Client-Side:</strong> Your API keys are saved exclusively in your browser's private encrypted <code>chrome.storage.local</code>. FormPilot has no external telemetry, tracking, or proxy servers. Requests travel directly from your browser to your chosen AI provider.
         </p>
         <p class="info-text">
-          <strong>Free-Tier Notice:</strong> If you are using the free tier of Google AI Studio, Google may use prompt and response data to train and improve its products. <em>Never submit sensitive, proprietary, confidential, or personally identifiable data.</em>
+          <strong>Multimodal Vision:</strong> Works with vision-capable models (e.g., Gemini 2.5/2.0, GPT-4o, Claude 3.5 Sonnet, Llama 3.2 Vision) to inspect product images, diagrams, and cards on the form.
         </p>
         <p class="info-text">
-          <strong>Usage Warning:</strong> FormPilot is strictly an automated testing tool designed for testing your own Google Forms during development and research.
+          <strong>Testing Policy:</strong> FormPilot is strictly an automated development & testing tool for forms you own or have explicit authorization to test.
         </p>
       </section>
     </main>
 
     <footer class="options-footer">
-      <p>FormPilot &bull; Manifest V3 &bull; 100% Client-Side</p>
+      <p>FormPilot &bull; Universal AI Testing Engine &bull; Manifest V3</p>
     </footer>
   </div>
 
